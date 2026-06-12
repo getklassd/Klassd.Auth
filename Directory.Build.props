@@ -19,7 +19,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageTags>auth;authentication;identity;sessions;jwt;oauth;mfa;totp;sqlite;postgresql;mongodb</PackageTags>
-    <Version>0.0.1-beta.2</Version>
+    <Version>0.0.1-beta.3</Version>
 
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

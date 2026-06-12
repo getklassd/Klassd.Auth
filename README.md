@@ -4,7 +4,7 @@ A self-hostable authentication core for .NET — email/password, sessions, socia
 MFA, email verification, and a per-user metadata store. An independent, clean-room design
 built from a public feature model, not a port or migration of any existing project's source.
 
-> **Status:** early scaffold (v0.0.1-beta.2). The module logic, session security, and three storage
+> **Status:** early scaffold (v0.0.1-beta.3). The module logic, session security, and three storage
 > adapters work end-to-end; OAuth providers and production hardening are still stubbed/TODO.
 
 ## Packages
