@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Klassd.Auth.OpenIdConnect</PackageId>
+    <Description>OpenID Connect external login for Klassd.Auth, including a Microsoft Entra ID convenience (AddEntraId). Plugs into the Klassd.Auth.AspNetCore.Cookies external-login seam.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Klassd.Auth.AspNetCore.Cookies\Klassd.Auth.AspNetCore.Cookies.csproj" />
+    <ProjectReference Include="..\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+  </ItemGroup>
+
+</Project>

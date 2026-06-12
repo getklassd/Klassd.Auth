@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Klassd.Auth.Data.MongoDb</PackageId>
+    <Description>MongoDB storage adapter for Klassd.Auth using MongoDB.Driver (no EF/ORM). UseMongoDb().</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MongoDB.Driver" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Klassd.Auth.Abstractions\Klassd.Auth.Abstractions.csproj" />
+  </ItemGroup>
+
+</Project>

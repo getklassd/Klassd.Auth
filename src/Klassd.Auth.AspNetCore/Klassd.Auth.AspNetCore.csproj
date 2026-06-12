@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Klassd.Auth.AspNetCore</PackageId>
+    <Description>ASP.NET Core HTTP delivery for Klassd.Auth: one MapKlassdAuth() call wires the full auth API (sign-up/in, session refresh/revoke, email verification, MFA/TOTP, user metadata). Pair with Klassd.Auth.Core + a Klassd.Auth.Data.* adapter.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+  </ItemGroup>
+
+</Project>

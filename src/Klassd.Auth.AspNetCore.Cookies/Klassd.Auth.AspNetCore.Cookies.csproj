@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Klassd.Auth.AspNetCore.Cookies</PackageId>
+    <Description>Cookie-based sign-in delivery for Klassd.Auth (server-rendered / Blazor apps): local username-or-email + password login, logout, and an external-SSO challenge/callback that provisions users via UserAccountService and issues the app cookie. AddKlassdAuthCookies() + UseKlassdAuthCookies().</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+  </ItemGroup>
+
+</Project>

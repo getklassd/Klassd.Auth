@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Klassd.Auth.Abstractions/Klassd.Auth.Abstractions.csproj" />
+    <Project Path="src/Klassd.Auth.AspNetCore.Cookies/Klassd.Auth.AspNetCore.Cookies.csproj" />
+    <Project Path="src/Klassd.Auth.AspNetCore/Klassd.Auth.AspNetCore.csproj" />
+    <Project Path="src/Klassd.Auth.Core/Klassd.Auth.Core.csproj" />
+    <Project Path="src/Klassd.Auth.Data.MongoDb/Klassd.Auth.Data.MongoDb.csproj" />
+    <Project Path="src/Klassd.Auth.Data.Postgres/Klassd.Auth.Data.Postgres.csproj" />
+    <Project Path="src/Klassd.Auth.Data.Sqlite/Klassd.Auth.Data.Sqlite.csproj" />
+    <Project Path="src/Klassd.Auth.OAuth/Klassd.Auth.OAuth.csproj" />
+    <Project Path="src/Klassd.Auth.OpenIdConnect/Klassd.Auth.OpenIdConnect.csproj" />
+    <Project Path="src/Klassd.Auth.Sample/Klassd.Auth.Sample.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Klassd.Auth.Tests/Klassd.Auth.Tests.csproj" />
+  </Folder>
+</Solution>
