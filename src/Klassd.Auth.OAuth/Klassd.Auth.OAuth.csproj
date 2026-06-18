@@ -11,6 +11,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Klassd.Auth.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Klassd.Auth.AspNetCore.Cookies\Klassd.Auth.AspNetCore.Cookies.csproj" />
     <ProjectReference Include="..\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
   </ItemGroup>

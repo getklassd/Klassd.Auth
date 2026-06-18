@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Klassd.Auth.Sms.Twilio</PackageId>
+    <Description>Twilio SMS sender for Klassd.Auth — delivers passwordless one-time codes over SMS. AddTwilioSms().</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Twilio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+  </ItemGroup>
+
+</Project>

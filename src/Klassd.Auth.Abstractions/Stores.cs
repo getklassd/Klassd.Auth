@@ -9,14 +9,23 @@ public interface IUserStore
     Task<User?> FindByIdAsync(string userId, CancellationToken ct = default);
     Task<User?> FindByUsernameAsync(string username, CancellationToken ct = default);
     Task<User?> FindByEmailAsync(string email, CancellationToken ct = default);
+    Task<User?> FindByPhoneAsync(string phone, CancellationToken ct = default);
     Task<LoginMethod?> FindEmailPasswordAsync(string email, CancellationToken ct = default);
     Task<LoginMethod?> FindThirdPartyAsync(string providerId, string providerUserId, CancellationToken ct = default);
     Task<IReadOnlyList<User>> GetAllAsync(CancellationToken ct = default);
     Task AddUserAsync(User user, CancellationToken ct = default);
 
-    /// <summary>Persists mutable user fields (username, email, disabled). Does not touch login methods.</summary>
+    /// <summary>Persists mutable user fields (username, email, phone, disabled). Does not touch login methods.</summary>
     Task UpdateUserAsync(User user, CancellationToken ct = default);
+
+    /// <summary>Updates an EXISTING login method (matched by <see cref="LoginMethod.Id"/>). Does not insert.</summary>
     Task UpdateLoginMethodAsync(LoginMethod method, CancellationToken ct = default);
+
+    /// <summary>Attaches a new login method to its owning user — the basis of account linking.</summary>
+    Task AddLoginMethodAsync(LoginMethod method, CancellationToken ct = default);
+
+    /// <summary>Removes a login method by id. Callers must guard against removing a user's last method.</summary>
+    Task RemoveLoginMethodAsync(string methodId, CancellationToken ct = default);
 }
 
 public interface ISessionStore

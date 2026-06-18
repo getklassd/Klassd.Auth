@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Klassd.Auth.Passkeys</PackageId>
+    <Description>Passkey (WebAuthn/FIDO2) sign-in for Klassd.Auth, built on Fido2NetLib. Registration + authentication ceremonies with a stateless ceremony-challenge store; JSON API and cookie sign-in variants. AddPasskeys().</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Fido2.AspNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Klassd.Auth.AspNetCore.Cookies\Klassd.Auth.AspNetCore.Cookies.csproj" />
+    <ProjectReference Include="..\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+  </ItemGroup>
+
+</Project>

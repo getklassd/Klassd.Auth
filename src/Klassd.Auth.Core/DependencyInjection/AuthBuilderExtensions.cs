@@ -2,6 +2,7 @@ using Klassd.Auth.Abstractions;
 using Klassd.Auth.Core.Modules.EmailPassword;
 using Klassd.Auth.Core.Modules.EmailVerification;
 using Klassd.Auth.Core.Modules.Mfa;
+using Klassd.Auth.Core.Modules.Notifications;
 using Klassd.Auth.Core.Modules.ThirdParty;
 using Klassd.Auth.Core.Modules.UserMetadata;
 using Klassd.Auth.Core.Modules.Users;
@@ -31,8 +32,11 @@ public static class AuthBuilderExtensions
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddSingleton<TotpService>();
         services.TryAddSingleton<IEmailSender, ConsoleEmailSender>();
-        // In-memory default; a Data.* adapter overrides this with a persistent store.
+        services.TryAddSingleton<ISmsSender, ConsoleSmsSender>();
+        // In-memory defaults; a Data.* adapter overrides these with persistent stores.
         services.TryAddSingleton<IEmailVerificationTokenStore, InMemoryEmailVerificationTokenStore>();
+        services.TryAddSingleton<IPasswordlessCodeStore, InMemoryPasswordlessCodeStore>();
+        services.TryAddSingleton<IPasskeyCredentialStore, InMemoryPasskeyCredentialStore>();
 
         services.AddScoped<SessionService>();
         services.AddScoped<EmailPasswordService>();

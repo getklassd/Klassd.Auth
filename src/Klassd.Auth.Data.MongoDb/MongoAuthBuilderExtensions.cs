@@ -19,6 +19,15 @@ public sealed class MongoSchemaInitializer(MongoContext ctx) : IAuthStorageIniti
                 .Ascending("LoginMethods.Kind").Ascending("LoginMethods.Email")),
             new(Builders<UserDoc>.IndexKeys
                 .Ascending("LoginMethods.ProviderId").Ascending("LoginMethods.ProviderUserId")),
+            new(Builders<UserDoc>.IndexKeys.Ascending(u => u.PrimaryPhone)),
+        ], ct);
+
+        await ctx.PasskeyCredentials.Indexes.CreateManyAsync(
+        [
+            new(Builders<PasskeyCredentialDoc>.IndexKeys.Ascending(c => c.CredentialId),
+                new CreateIndexOptions { Unique = true }),
+            new(Builders<PasskeyCredentialDoc>.IndexKeys.Ascending(c => c.UserId)),
+            new(Builders<PasskeyCredentialDoc>.IndexKeys.Ascending(c => c.UserHandle)),
         ], ct);
     }
 }
@@ -43,6 +52,8 @@ public static class MongoAuthBuilderExtensions
         auth.Services.AddScoped<IUserMetadataStore, MongoUserMetadataStore>();
         auth.Services.AddSingleton<ISigningKeyStore, MongoSigningKeyStore>();
         auth.Services.AddSingleton<IEmailVerificationTokenStore, MongoEmailVerificationTokenStore>();
+        auth.Services.AddSingleton<IPasswordlessCodeStore, MongoPasswordlessCodeStore>();
+        auth.Services.AddSingleton<IPasskeyCredentialStore, MongoPasskeyCredentialStore>();
         auth.Services.AddSingleton<IAuthStorageInitializer, MongoSchemaInitializer>();
         return auth;
     }
@@ -61,6 +72,8 @@ public static class MongoAuthBuilderExtensions
 
             // Store DateTimeOffset as a BSON document/string round-trippable form.
             BsonSerializer.RegisterSerializer(new DateTimeOffsetSerializer(MongoDB.Bson.BsonType.String));
+            // Passkey credentials carry an AAGUID; the v3 driver needs an explicit Guid representation.
+            BsonSerializer.TryRegisterSerializer(new GuidSerializer(MongoDB.Bson.GuidRepresentation.Standard));
 
             BsonClassMap.RegisterClassMap<UserDoc>(cm =>
             {
@@ -86,6 +99,16 @@ public static class MongoAuthBuilderExtensions
             {
                 cm.AutoMap();
                 cm.MapIdMember(x => x.TokenHash);
+            });
+            BsonClassMap.RegisterClassMap<PasswordlessCodeDoc>(cm =>
+            {
+                cm.AutoMap();
+                cm.MapIdMember(x => x.Identifier);
+            });
+            BsonClassMap.RegisterClassMap<PasskeyCredentialDoc>(cm =>
+            {
+                cm.AutoMap();
+                cm.MapIdMember(x => x.Id);
             });
             ConventionRegistry.Register(
                 "klassd-auth-enum-string",

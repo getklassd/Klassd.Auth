@@ -16,6 +16,8 @@ public static class PostgresAuthBuilderExtensions
         auth.Services.AddScoped<IUserMetadataStore, PostgresUserMetadataStore>();
         auth.Services.AddSingleton<ISigningKeyStore, PostgresSigningKeyStore>();
         auth.Services.AddSingleton<IEmailVerificationTokenStore, PostgresEmailVerificationTokenStore>();
+        auth.Services.AddSingleton<IPasswordlessCodeStore, PostgresPasswordlessCodeStore>();
+        auth.Services.AddSingleton<IPasskeyCredentialStore, PostgresPasskeyCredentialStore>();
         auth.Services.AddSingleton<IAuthStorageInitializer, PostgresSchemaInitializer>();
         return auth;
     }

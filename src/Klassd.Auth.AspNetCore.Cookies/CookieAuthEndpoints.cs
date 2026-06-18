@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Klassd.Auth.Core.Modules.Users;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
@@ -63,7 +64,8 @@ public static class CookieAuthEndpoints
             var returnUrl = items is not null && items.TryGetValue("returnUrl", out var ru) ? ru ?? "/" : "/";
 
             var info = options.MapExternalUser(result.Principal);
-            var user = await accounts.ProvisionExternalAsync(provider, info, options.AutoProvisionExternalUsers);
+            var user = await accounts.ProvisionExternalAsync(
+                provider, info, options.AutoProvisionExternalUsers, options.AutoLinkByVerifiedEmail);
             if (user is null || user.Disabled)
                 return Results.Redirect($"{options.LoginPath}?error=not_provisioned");
 
@@ -73,8 +75,81 @@ public static class CookieAuthEndpoints
             return Results.Redirect(SafeReturn(returnUrl));
         });
 
+        // ---- Account linking (a signed-in user attaches another method) -------------------
+        // Challenge the provider, returning to /link-callback (vs /external-callback for sign-in).
+        g.MapGet("/link/{scheme}", (string scheme, string? returnUrl) =>
+        {
+            var props = new AuthenticationProperties
+            {
+                RedirectUri = $"{options.BasePath}/link-callback",
+                Items = { ["provider"] = scheme, ["returnUrl"] = SafeReturn(returnUrl) },
+            };
+            return Results.Challenge(props, [scheme]);
+        }).RequireAuthorization();
+
+        // Attach the external identity to the CURRENT user (never steal one owned elsewhere).
+        g.MapGet("/link-callback", async (HttpContext http, UserAccountService accounts) =>
+        {
+            if (http.User.FindFirstValue(ClaimTypes.NameIdentifier) is not { } userId)
+                return Results.Redirect($"{options.LoginPath}?error=link");
+
+            var result = await http.AuthenticateAsync(KlassdAuthSchemes.External);
+            if (!result.Succeeded || result.Principal is null)
+                return Results.Redirect(AppendQuery("/", "linked", "error"));
+
+            var items = result.Properties?.Items;
+            var provider = items is not null && items.TryGetValue("provider", out var p) ? p ?? "external" : "external";
+            var returnUrl = items is not null && items.TryGetValue("returnUrl", out var ru) ? ru ?? "/" : "/";
+
+            var link = await accounts.LinkExternalAsync(userId, provider, options.MapExternalUser(result.Principal));
+            await http.SignOutAsync(KlassdAuthSchemes.External);
+
+            var status = link.Outcome switch
+            {
+                LinkOutcome.Linked => "ok",
+                LinkOutcome.AlreadyLinkedToThisUser => "already",
+                LinkOutcome.ConflictOwnedByAnotherUser => "conflict",
+                _ => "error",
+            };
+            return Results.Redirect(AppendQuery(SafeReturn(returnUrl), "linked", status));
+        }).RequireAuthorization();
+
+        g.MapPost("/unlink", async ([FromForm] string methodId, HttpContext http, UserAccountService accounts) =>
+        {
+            if (http.User.FindFirstValue(ClaimTypes.NameIdentifier) is not { } userId) return Results.Unauthorized();
+            return await accounts.UnlinkAsync(userId, methodId)
+                ? Results.NoContent()
+                : Results.BadRequest(new { error = "CANNOT_UNLINK_LAST_METHOD" });
+        }).RequireAuthorization().DisableAntiforgery();
+
+        // Let a social-/passwordless-only user gain a password.
+        g.MapPost("/link/password", async ([FromForm] string password, HttpContext http, UserAccountService accounts) =>
+        {
+            if (http.User.FindFirstValue(ClaimTypes.NameIdentifier) is not { } userId) return Results.Unauthorized();
+            return await accounts.AddPasswordAsync(userId, password)
+                ? Results.NoContent()
+                : Results.BadRequest(new { error = "PASSWORD_ALREADY_SET" });
+        }).RequireAuthorization().DisableAntiforgery();
+
+        // List the caller's own login methods (ids are needed to unlink).
+        g.MapGet("/me/methods", async (HttpContext http, UserAccountService accounts) =>
+        {
+            if (http.User.FindFirstValue(ClaimTypes.NameIdentifier) is not { } userId) return Results.Unauthorized();
+            var user = await accounts.GetByIdAsync(userId);
+            return user is null
+                ? Results.Unauthorized()
+                : Results.Ok(user.LoginMethods.Select(m => new
+                {
+                    id = m.Id, kind = m.Kind.ToString(), providerId = m.ProviderId,
+                    email = m.Email, phone = m.Phone, emailVerified = m.EmailVerified,
+                }));
+        }).RequireAuthorization();
+
         return app;
     }
+
+    private static string AppendQuery(string url, string key, string value) =>
+        $"{url}{(url.Contains('?') ? '&' : '?')}{key}={value}";
 
     // Only allow local redirects, to avoid open-redirect via returnUrl.
     private static string SafeReturn(string? returnUrl) =>

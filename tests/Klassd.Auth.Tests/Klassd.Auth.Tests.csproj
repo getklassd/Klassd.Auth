@@ -11,6 +11,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+    <ProjectReference Include="..\..\src\Klassd.Auth.Passwordless\Klassd.Auth.Passwordless.csproj" />
+    <ProjectReference Include="..\..\src\Klassd.Auth.Passkeys\Klassd.Auth.Passkeys.csproj" />
+    <ProjectReference Include="..\..\src\Klassd.Auth.OAuth\Klassd.Auth.OAuth.csproj" />
   </ItemGroup>
 
 </Project>

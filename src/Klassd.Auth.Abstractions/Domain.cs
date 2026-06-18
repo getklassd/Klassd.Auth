@@ -13,6 +13,9 @@ public sealed class User
     public string? Username { get; set; }
     public string? PrimaryEmail { get; set; }
 
+    /// <summary>Optional phone identity (E.164), used by passwordless-over-SMS sign-in.</summary>
+    public string? PrimaryPhone { get; set; }
+
     /// <summary>Soft-delete / lockout flag. A disabled user cannot sign in but is preserved for authorship.</summary>
     public bool Disabled { get; set; }
 
@@ -25,7 +28,8 @@ public enum LoginMethodKind
 {
     EmailPassword,
     ThirdParty,
-    Passwordless
+    Passwordless,
+    Passkey
 }
 
 /// <summary>One way a <see cref="User"/> can sign in. Multiple methods may link to one user.</summary>
@@ -37,6 +41,9 @@ public sealed class LoginMethod
 
     public string? Email { get; set; }
     public bool EmailVerified { get; set; }
+
+    /// <summary>Phone identity (E.164) for a Passwordless-over-SMS login method.</summary>
+    public string? Phone { get; set; }
 
     // EmailPassword
     public string? PasswordHash { get; set; }

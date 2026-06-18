@@ -33,6 +33,13 @@ public sealed class KlassdAuthCookieOptions
     public bool AllowLocalLogin { get; set; } = true;
     public bool AutoProvisionExternalUsers { get; set; } = true;
 
+    /// <summary>
+    /// When an UNauthenticated external sign-in matches an existing local account by email, merge into
+    /// it — but only if the provider reports the email as verified. Off by default: auto-linking by an
+    /// unverified email is an account-takeover vector. (Signed-in users can always link explicitly.)
+    /// </summary>
+    public bool AutoLinkByVerifiedEmail { get; set; }
+
     // Optional admin seeded at startup (provide a password + a username and/or email).
     public string? SeedAdminUsername { get; set; }
     public string? SeedAdminEmail { get; set; }
@@ -57,6 +64,10 @@ public sealed class KlassdAuthCookieOptions
             ?? throw new InvalidOperationException("External login is missing a stable subject/oid claim.");
         var email = C("email", ClaimTypes.Email, "preferred_username", "upn");
         var username = C("preferred_username", "name", ClaimTypes.Name) ?? email;
-        return new ExternalUserInfo(externalId, username, email);
+        // OIDC providers (Google/Entra) emit email_verified; OAuth providers set it explicitly in their
+        // OnCreatingTicket. Verified only when the claim is truthy — gates AutoLinkByVerifiedEmail.
+        var emailVerified = email is not null
+            && C("email_verified") is { } v && (v == "true" || v == "True");
+        return new ExternalUserInfo(externalId, username, email, emailVerified);
     }
 }

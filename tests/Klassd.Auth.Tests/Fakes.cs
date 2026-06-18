@@ -16,6 +16,9 @@ public sealed class FakeUserStore : IUserStore
     public Task<User?> FindByEmailAsync(string email, CancellationToken ct = default) =>
         Task.FromResult<User?>(_users.Values.FirstOrDefault(u => u.PrimaryEmail == email));
 
+    public Task<User?> FindByPhoneAsync(string phone, CancellationToken ct = default) =>
+        Task.FromResult<User?>(_users.Values.FirstOrDefault(u => u.PrimaryPhone == phone));
+
     public Task<LoginMethod?> FindEmailPasswordAsync(string email, CancellationToken ct = default) =>
         Task.FromResult<LoginMethod?>(_users.Values.SelectMany(u => u.LoginMethods)
             .FirstOrDefault(m => m.Kind == LoginMethodKind.EmailPassword && m.Email == email));
@@ -41,12 +44,24 @@ public sealed class FakeUserStore : IUserStore
 
     public Task UpdateLoginMethodAsync(LoginMethod method, CancellationToken ct = default)
     {
+        // Update-only, matching the real adapters (a missing method is a no-op, NOT an insert).
         if (_users.TryGetValue(method.UserId, out var u))
         {
             var idx = u.LoginMethods.FindIndex(m => m.Id == method.Id);
             if (idx >= 0) u.LoginMethods[idx] = method;
-            else u.LoginMethods.Add(method);
         }
+        return Task.CompletedTask;
+    }
+
+    public Task AddLoginMethodAsync(LoginMethod method, CancellationToken ct = default)
+    {
+        if (_users.TryGetValue(method.UserId, out var u)) u.LoginMethods.Add(method);
+        return Task.CompletedTask;
+    }
+
+    public Task RemoveLoginMethodAsync(string methodId, CancellationToken ct = default)
+    {
+        foreach (var u in _users.Values) u.LoginMethods.RemoveAll(m => m.Id == methodId);
         return Task.CompletedTask;
     }
 }

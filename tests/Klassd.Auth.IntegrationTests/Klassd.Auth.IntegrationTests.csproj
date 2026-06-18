@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.MongoDb" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Klassd.Auth.Abstractions\Klassd.Auth.Abstractions.csproj" />
+    <ProjectReference Include="..\..\src\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+    <ProjectReference Include="..\..\src\Klassd.Auth.Data.Sqlite\Klassd.Auth.Data.Sqlite.csproj" />
+    <ProjectReference Include="..\..\src\Klassd.Auth.Data.Postgres\Klassd.Auth.Data.Postgres.csproj" />
+    <ProjectReference Include="..\..\src\Klassd.Auth.Data.MongoDb\Klassd.Auth.Data.MongoDb.csproj" />
+  </ItemGroup>
+
+</Project>

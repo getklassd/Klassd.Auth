@@ -9,6 +9,9 @@
     <ProjectReference Include="..\Klassd.Auth.AspNetCore.Cookies\Klassd.Auth.AspNetCore.Cookies.csproj" />
     <ProjectReference Include="..\Klassd.Auth.OpenIdConnect\Klassd.Auth.OpenIdConnect.csproj" />
     <ProjectReference Include="..\Klassd.Auth.OAuth\Klassd.Auth.OAuth.csproj" />
+    <ProjectReference Include="..\Klassd.Auth.Passwordless\Klassd.Auth.Passwordless.csproj" />
+    <ProjectReference Include="..\Klassd.Auth.Passkeys\Klassd.Auth.Passkeys.csproj" />
+    <ProjectReference Include="..\Klassd.Auth.Sms.Twilio\Klassd.Auth.Sms.Twilio.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

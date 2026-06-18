@@ -20,6 +20,8 @@ public sealed class MongoContext
         Metadata = db.GetCollection<MetadataDoc>("user_metadata");
         SigningKeys = db.GetCollection<SigningKeyDoc>("signing_keys");
         EmailVerificationTokens = db.GetCollection<EmailVerificationTokenDoc>("email_verification_tokens");
+        PasswordlessCodes = db.GetCollection<PasswordlessCodeDoc>("passwordless_codes");
+        PasskeyCredentials = db.GetCollection<PasskeyCredentialDoc>("passkey_credentials");
     }
 
     public IMongoCollection<UserDoc> Users { get; }
@@ -27,6 +29,8 @@ public sealed class MongoContext
     public IMongoCollection<MetadataDoc> Metadata { get; }
     public IMongoCollection<SigningKeyDoc> SigningKeys { get; }
     public IMongoCollection<EmailVerificationTokenDoc> EmailVerificationTokens { get; }
+    public IMongoCollection<PasswordlessCodeDoc> PasswordlessCodes { get; }
+    public IMongoCollection<PasskeyCredentialDoc> PasskeyCredentials { get; }
 }
 
 // Persistence documents. Kept separate from the Abstractions domain types so the storage
@@ -36,6 +40,7 @@ public sealed class UserDoc
     public required string Id { get; set; }     // mapped to _id
     public string? Username { get; set; }
     public string? PrimaryEmail { get; set; }
+    public string? PrimaryPhone { get; set; }
     public bool Disabled { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public List<LoginMethodDoc> LoginMethods { get; set; } = [];
@@ -45,6 +50,7 @@ public sealed class UserDoc
         Id = Id,
         Username = Username,
         PrimaryEmail = PrimaryEmail,
+        PrimaryPhone = PrimaryPhone,
         Disabled = Disabled,
         CreatedAt = CreatedAt,
         LoginMethods = LoginMethods.ConvertAll(m => m.ToDomain()),
@@ -55,6 +61,7 @@ public sealed class UserDoc
         Id = u.Id,
         Username = u.Username,
         PrimaryEmail = u.PrimaryEmail,
+        PrimaryPhone = u.PrimaryPhone,
         Disabled = u.Disabled,
         CreatedAt = u.CreatedAt,
         LoginMethods = u.LoginMethods.ConvertAll(LoginMethodDoc.From),
@@ -71,18 +78,19 @@ public sealed class LoginMethodDoc
     public string? PasswordHash { get; set; }
     public string? ProviderId { get; set; }
     public string? ProviderUserId { get; set; }
+    public string? Phone { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 
     public LoginMethod ToDomain() => new()
     {
         Id = Id, UserId = UserId, Kind = Kind, Email = Email, EmailVerified = EmailVerified,
-        PasswordHash = PasswordHash, ProviderId = ProviderId, ProviderUserId = ProviderUserId, CreatedAt = CreatedAt,
+        PasswordHash = PasswordHash, ProviderId = ProviderId, ProviderUserId = ProviderUserId, Phone = Phone, CreatedAt = CreatedAt,
     };
 
     public static LoginMethodDoc From(LoginMethod m) => new()
     {
         Id = m.Id, UserId = m.UserId, Kind = m.Kind, Email = m.Email, EmailVerified = m.EmailVerified,
-        PasswordHash = m.PasswordHash, ProviderId = m.ProviderId, ProviderUserId = m.ProviderUserId, CreatedAt = m.CreatedAt,
+        PasswordHash = m.PasswordHash, ProviderId = m.ProviderId, ProviderUserId = m.ProviderUserId, Phone = m.Phone, CreatedAt = m.CreatedAt,
     };
 }
 
@@ -128,4 +136,42 @@ public sealed class EmailVerificationTokenDoc
     public required string UserId { get; set; }
     public required string Email { get; set; }
     public DateTimeOffset Expires { get; set; }
+}
+
+public sealed class PasswordlessCodeDoc
+{
+    public required string Identifier { get; set; }  // mapped to _id
+    public PasswordlessChannel Channel { get; set; }
+    public required string CodeHash { get; set; }
+    public DateTimeOffset ExpiresAt { get; set; }
+    public int Attempts { get; set; }
+}
+
+public sealed class PasskeyCredentialDoc
+{
+    public required string Id { get; set; }   // mapped to _id
+    public required string UserId { get; set; }
+    public required byte[] CredentialId { get; set; }
+    public required byte[] PublicKey { get; set; }
+    public required byte[] UserHandle { get; set; }
+    public long SignCount { get; set; }
+    public Guid AaGuid { get; set; }
+    public string? CredType { get; set; }
+    public string? Nickname { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? LastUsedAt { get; set; }
+
+    public PasskeyCredential ToDomain() => new()
+    {
+        Id = Id, UserId = UserId, CredentialId = CredentialId, PublicKey = PublicKey, UserHandle = UserHandle,
+        SignCount = (ulong)SignCount, AaGuid = AaGuid, CredType = CredType, Nickname = Nickname,
+        CreatedAt = CreatedAt, LastUsedAt = LastUsedAt,
+    };
+
+    public static PasskeyCredentialDoc From(PasskeyCredential c) => new()
+    {
+        Id = c.Id, UserId = c.UserId, CredentialId = c.CredentialId, PublicKey = c.PublicKey, UserHandle = c.UserHandle,
+        SignCount = (long)c.SignCount, AaGuid = c.AaGuid, CredType = c.CredType, Nickname = c.Nickname,
+        CreatedAt = c.CreatedAt, LastUsedAt = c.LastUsedAt,
+    };
 }

@@ -16,10 +16,12 @@ public sealed class SqliteSchemaInitializer(SqliteContext ctx) : IAuthStorageIni
                 username      TEXT,
                 primary_email TEXT,
                 disabled      INTEGER NOT NULL DEFAULT 0,
-                created_at    TEXT NOT NULL
+                created_at    TEXT NOT NULL,
+                phone         TEXT
             );
             CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username ON users(username) WHERE username IS NOT NULL;
             CREATE INDEX IF NOT EXISTS ix_users_email ON users(primary_email);
+            CREATE INDEX IF NOT EXISTS ix_users_phone ON users(phone);
 
             CREATE TABLE IF NOT EXISTS login_methods (
                 id               TEXT PRIMARY KEY,
@@ -30,7 +32,8 @@ public sealed class SqliteSchemaInitializer(SqliteContext ctx) : IAuthStorageIni
                 password_hash    TEXT,
                 provider_id      TEXT,
                 provider_user_id TEXT,
-                created_at       TEXT NOT NULL
+                created_at       TEXT NOT NULL,
+                phone            TEXT
             );
             CREATE INDEX IF NOT EXISTS ix_lm_user      ON login_methods(user_id);
             CREATE INDEX IF NOT EXISTS ix_lm_email     ON login_methods(kind, email);
@@ -63,7 +66,49 @@ public sealed class SqliteSchemaInitializer(SqliteContext ctx) : IAuthStorageIni
                 email      TEXT NOT NULL,
                 expires_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS passwordless_codes (
+                identifier TEXT PRIMARY KEY,
+                channel    INTEGER NOT NULL,
+                code_hash  TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                attempts   INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS passkey_credentials (
+                id            TEXT PRIMARY KEY,
+                user_id       TEXT NOT NULL,
+                credential_id BLOB NOT NULL,
+                public_key    BLOB NOT NULL,
+                user_handle   BLOB NOT NULL,
+                sign_count    INTEGER NOT NULL DEFAULT 0,
+                aaguid        TEXT NOT NULL,
+                cred_type     TEXT,
+                nickname      TEXT,
+                created_at    TEXT NOT NULL,
+                last_used_at  TEXT
+            );
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_pk_credential ON passkey_credentials(credential_id);
+            CREATE INDEX IF NOT EXISTS ix_pk_user   ON passkey_credentials(user_id);
+            CREATE INDEX IF NOT EXISTS ix_pk_handle ON passkey_credentials(user_handle);
             """;
         await cmd.ExecuteNonQueryAsync(ct);
+
+        // Best-effort column adds for databases created before passwordless-over-SMS (fresh DBs already
+        // have them via the CREATE above). SQLite has no ADD COLUMN IF NOT EXISTS, so swallow dupes.
+        foreach (var alter in new[]
+                 {
+                     "ALTER TABLE users ADD COLUMN phone TEXT",
+                     "ALTER TABLE login_methods ADD COLUMN phone TEXT",
+                 })
+        {
+            try
+            {
+                var a = conn.CreateCommand();
+                a.CommandText = alter;
+                await a.ExecuteNonQueryAsync(ct);
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException) { /* column already exists */ }
+        }
     }
 }

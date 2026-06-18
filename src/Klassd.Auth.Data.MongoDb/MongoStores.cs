@@ -14,6 +14,9 @@ public sealed class MongoUserStore(MongoContext ctx) : IUserStore
     public async Task<User?> FindByEmailAsync(string email, CancellationToken ct = default) =>
         (await ctx.Users.Find(u => u.PrimaryEmail == email).FirstOrDefaultAsync(ct))?.ToDomain();
 
+    public async Task<User?> FindByPhoneAsync(string phone, CancellationToken ct = default) =>
+        (await ctx.Users.Find(u => u.PrimaryPhone == phone).FirstOrDefaultAsync(ct))?.ToDomain();
+
     public async Task<IReadOnlyList<User>> GetAllAsync(CancellationToken ct = default) =>
         (await ctx.Users.Find(FilterDefinition<UserDoc>.Empty).ToListAsync(ct)).ConvertAll(d => d.ToDomain());
 
@@ -22,6 +25,7 @@ public sealed class MongoUserStore(MongoContext ctx) : IUserStore
         var update = Builders<UserDoc>.Update
             .Set(u => u.Username, user.Username)
             .Set(u => u.PrimaryEmail, user.PrimaryEmail)
+            .Set(u => u.PrimaryPhone, user.PrimaryPhone)
             .Set(u => u.Disabled, user.Disabled);
         return ctx.Users.UpdateOneAsync(u => u.Id == user.Id, update, cancellationToken: ct);
     }
@@ -54,6 +58,18 @@ public sealed class MongoUserStore(MongoContext ctx) : IUserStore
         var update = Builders<UserDoc>.Update.Set("LoginMethods.$", LoginMethodDoc.From(method));
         return ctx.Users.UpdateOneAsync(filter, update, cancellationToken: ct);
     }
+
+    public Task AddLoginMethodAsync(LoginMethod method, CancellationToken ct = default) =>
+        ctx.Users.UpdateOneAsync(
+            u => u.Id == method.UserId,
+            Builders<UserDoc>.Update.Push(u => u.LoginMethods, LoginMethodDoc.From(method)),
+            cancellationToken: ct);
+
+    public Task RemoveLoginMethodAsync(string methodId, CancellationToken ct = default) =>
+        ctx.Users.UpdateOneAsync(
+            Builders<UserDoc>.Filter.ElemMatch(u => u.LoginMethods, m => m.Id == methodId),
+            Builders<UserDoc>.Update.PullFilter(u => u.LoginMethods, m => m.Id == methodId),
+            cancellationToken: ct);
 }
 
 public sealed class MongoSessionStore(MongoContext ctx) : ISessionStore

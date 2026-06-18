@@ -16,6 +16,8 @@ public static class SqliteAuthBuilderExtensions
         auth.Services.AddScoped<IUserMetadataStore, SqliteUserMetadataStore>();
         auth.Services.AddSingleton<ISigningKeyStore, SqliteSigningKeyStore>();
         auth.Services.AddSingleton<IEmailVerificationTokenStore, SqliteEmailVerificationTokenStore>();
+        auth.Services.AddSingleton<IPasswordlessCodeStore, SqlitePasswordlessCodeStore>();
+        auth.Services.AddSingleton<IPasskeyCredentialStore, SqlitePasskeyCredentialStore>();
         auth.Services.AddSingleton<IAuthStorageInitializer, SqliteSchemaInitializer>();
         return auth;
     }

@@ -8,7 +8,7 @@ namespace Klassd.Auth.Data.Postgres;
 internal static class PgMap
 {
     public const string LoginMethodColumns =
-        "id, user_id, kind, email, email_verified, password_hash, provider_id, provider_user_id, created_at";
+        "id, user_id, kind, email, email_verified, password_hash, provider_id, provider_user_id, created_at, phone";
 
     public static LoginMethod ReadLoginMethod(NpgsqlDataReader r) => new()
     {
@@ -21,6 +21,7 @@ internal static class PgMap
         ProviderId = r.IsDBNull(6) ? null : r.GetString(6),
         ProviderUserId = r.IsDBNull(7) ? null : r.GetString(7),
         CreatedAt = r.GetFieldValue<DateTimeOffset>(8),
+        Phone = r.IsDBNull(9) ? null : r.GetString(9),
     };
 
     public static void BindLoginMethod(NpgsqlCommand cmd, LoginMethod m)
@@ -34,12 +35,13 @@ internal static class PgMap
         cmd.Parameters.AddWithValue("pid", (object?)m.ProviderId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("puid", (object?)m.ProviderUserId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("ca", m.CreatedAt);
+        cmd.Parameters.AddWithValue("phone", (object?)m.Phone ?? DBNull.Value);
     }
 }
 
 public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
 {
-    private const string UserColumns = "id, username, primary_email, disabled, created_at";
+    private const string UserColumns = "id, username, primary_email, disabled, created_at, phone";
 
     private static User ReadUser(NpgsqlDataReader r) => new()
     {
@@ -48,6 +50,7 @@ public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
         PrimaryEmail = r.IsDBNull(2) ? null : r.GetString(2),
         Disabled = r.GetBoolean(3),
         CreatedAt = r.GetFieldValue<DateTimeOffset>(4),
+        PrimaryPhone = r.IsDBNull(5) ? null : r.GetString(5),
     };
 
     public Task<User?> FindByIdAsync(string userId, CancellationToken ct = default) =>
@@ -58,6 +61,9 @@ public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
 
     public Task<User?> FindByEmailAsync(string email, CancellationToken ct = default) =>
         FindUserAsync("primary_email = @v", email, ct);
+
+    public Task<User?> FindByPhoneAsync(string phone, CancellationToken ct = default) =>
+        FindUserAsync("phone = @v", phone, ct);
 
     private async Task<User?> FindUserAsync(string where, string value, CancellationToken ct)
     {
@@ -132,13 +138,14 @@ public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
         await using (var u = conn.CreateCommand())
         {
             u.CommandText =
-                "INSERT INTO users (id, username, primary_email, disabled, created_at) " +
-                "VALUES (@id, @un, @email, @dis, @ca)";
+                "INSERT INTO users (id, username, primary_email, disabled, created_at, phone) " +
+                "VALUES (@id, @un, @email, @dis, @ca, @phone)";
             u.Parameters.AddWithValue("id", user.Id);
             u.Parameters.AddWithValue("un", (object?)user.Username ?? DBNull.Value);
             u.Parameters.AddWithValue("email", (object?)user.PrimaryEmail ?? DBNull.Value);
             u.Parameters.AddWithValue("dis", user.Disabled);
             u.Parameters.AddWithValue("ca", user.CreatedAt);
+            u.Parameters.AddWithValue("phone", (object?)user.PrimaryPhone ?? DBNull.Value);
             await u.ExecuteNonQueryAsync(ct);
         }
 
@@ -147,7 +154,7 @@ public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
             await using var lm = conn.CreateCommand();
             lm.CommandText =
                 $"INSERT INTO login_methods ({PgMap.LoginMethodColumns}) " +
-                "VALUES (@id, @uid, @kind, @email, @ev, @ph, @pid, @puid, @ca)";
+                "VALUES (@id, @uid, @kind, @email, @ev, @ph, @pid, @puid, @ca, @phone)";
             PgMap.BindLoginMethod(lm, m);
             await lm.ExecuteNonQueryAsync(ct);
         }
@@ -158,11 +165,12 @@ public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
     {
         await using var conn = await ctx.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "UPDATE users SET username=@un, primary_email=@email, disabled=@dis WHERE id=@id";
+        cmd.CommandText = "UPDATE users SET username=@un, primary_email=@email, disabled=@dis, phone=@phone WHERE id=@id";
         cmd.Parameters.AddWithValue("id", user.Id);
         cmd.Parameters.AddWithValue("un", (object?)user.Username ?? DBNull.Value);
         cmd.Parameters.AddWithValue("email", (object?)user.PrimaryEmail ?? DBNull.Value);
         cmd.Parameters.AddWithValue("dis", user.Disabled);
+        cmd.Parameters.AddWithValue("phone", (object?)user.PrimaryPhone ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -172,8 +180,28 @@ public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
         await using var cmd = conn.CreateCommand();
         cmd.CommandText =
             "UPDATE login_methods SET email=@email, email_verified=@ev, password_hash=@ph, " +
-            "provider_id=@pid, provider_user_id=@puid WHERE id=@id";
+            "provider_id=@pid, provider_user_id=@puid, phone=@phone WHERE id=@id";
         PgMap.BindLoginMethod(cmd, method);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task AddLoginMethodAsync(LoginMethod method, CancellationToken ct = default)
+    {
+        await using var conn = await ctx.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            $"INSERT INTO login_methods ({PgMap.LoginMethodColumns}) " +
+            "VALUES (@id, @uid, @kind, @email, @ev, @ph, @pid, @puid, @ca, @phone)";
+        PgMap.BindLoginMethod(cmd, method);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task RemoveLoginMethodAsync(string methodId, CancellationToken ct = default)
+    {
+        await using var conn = await ctx.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM login_methods WHERE id = @id";
+        cmd.Parameters.AddWithValue("id", methodId);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 }

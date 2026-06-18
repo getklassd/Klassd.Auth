@@ -9,9 +9,14 @@
     <Project Path="src/Klassd.Auth.Data.Sqlite/Klassd.Auth.Data.Sqlite.csproj" />
     <Project Path="src/Klassd.Auth.OAuth/Klassd.Auth.OAuth.csproj" />
     <Project Path="src/Klassd.Auth.OpenIdConnect/Klassd.Auth.OpenIdConnect.csproj" />
+    <Project Path="src/Klassd.Auth.Passkeys/Klassd.Auth.Passkeys.csproj" />
+    <Project Path="src/Klassd.Auth.Passwordless/Klassd.Auth.Passwordless.csproj" />
     <Project Path="src/Klassd.Auth.Sample/Klassd.Auth.Sample.csproj" />
+    <Project Path="src/Klassd.Auth.Sms.Twilio/Klassd.Auth.Sms.Twilio.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Klassd.Auth.Tests/Klassd.Auth.Tests.csproj" />
+    <Project Path="tests/Klassd.Auth.IntegrationTests/Klassd.Auth.IntegrationTests.csproj" />
+    <Project Path="tests/Klassd.Auth.UiTests/Klassd.Auth.UiTests.csproj" />
   </Folder>
 </Solution>

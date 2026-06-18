@@ -20,6 +20,12 @@
     <!-- SSO / external login -->
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.8" />
 
+    <!-- Passkeys (WebAuthn/FIDO2) -->
+    <PackageVersion Include="Fido2.AspNet" Version="4.0.1" />
+
+    <!-- SMS provider (passwordless over SMS) -->
+    <PackageVersion Include="Twilio" Version="7.14.9" />
+
     <!-- Storage adapters (raw drivers, no EF/ORM — matches Klassd house convention) -->
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.8" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />
@@ -27,6 +33,9 @@
 
     <!-- Testing -->
     <PackageVersion Include="TUnit" Version="1.47.0" />
+    <PackageVersion Include="TUnit.Playwright" Version="1.47.0" />
+    <PackageVersion Include="Testcontainers.PostgreSql" Version="4.12.0" />
+    <PackageVersion Include="Testcontainers.MongoDb" Version="4.12.0" />
   </ItemGroup>
 
 </Project>
