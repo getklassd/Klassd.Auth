@@ -1,22 +1,27 @@
 # Klassd.Auth
 
-A self-hostable authentication core for .NET — email/password, sessions, social login,
-MFA, email verification, and a per-user metadata store. An independent, clean-room design
-built from a public feature model, not a port or migration of any existing project's source.
+A self-hostable authentication core for .NET — email/password, **passwordless** one-time codes
+(email + SMS), **passkeys** (WebAuthn/FIDO2), social login & SSO, **account linking**, MFA,
+email verification, and a per-user metadata store. An independent, clean-room design built from a
+public feature model, not a port or migration of any existing project's source.
 
-> **Status:** early scaffold (v0.0.1-beta.3). The module logic, session security, and three storage
-> adapters work end-to-end; OAuth providers and production hardening are still stubbed/TODO.
+> **Status:** beta (v0.0.1-beta.4). Module logic, session security, the auth methods below, and all
+> three storage adapters work end-to-end and are covered by unit, Testcontainers and Playwright
+> (WebAuthn) tests. Pre-1.0 — APIs may still shift, and provider endpoints track the upstream APIs.
 
 ## Packages
 
 | Package | Purpose |
 |---|---|
 | `Klassd.Auth.Abstractions` | Store interfaces + DB-agnostic record types |
-| `Klassd.Auth.Core` | Auth logic: email/password, sessions, third-party, MFA, email verification, metadata |
+| `Klassd.Auth.Core` | Auth logic: email/password, sessions, third-party, MFA, email verification, metadata, account linking |
 | `Klassd.Auth.AspNetCore` | JSON/JWT HTTP delivery — one `MapKlassdAuth()` call wires the whole API |
-| `Klassd.Auth.AspNetCore.Cookies` | Cookie sign-in for server-rendered / Blazor apps + external-SSO seam |
+| `Klassd.Auth.AspNetCore.Cookies` | Cookie sign-in for server-rendered / Blazor apps + external-SSO & linking seam |
+| `Klassd.Auth.Passwordless` | Passwordless one-time codes over email/SMS — `AddPasswordless()` + endpoints |
+| `Klassd.Auth.Passkeys` | Passkeys (WebAuthn/FIDO2) via Fido2NetLib — `AddPasskeys()` + ceremony endpoints |
+| `Klassd.Auth.Sms.Twilio` | Twilio `ISmsSender` for passwordless-over-SMS — `AddTwilioSms()` |
 | `Klassd.Auth.OpenIdConnect` | OIDC external login + **Microsoft Entra ID** (`AddEntraId`) + Google (`AddGoogle`) |
-| `Klassd.Auth.OAuth` | OAuth 2.0 (non-OIDC) providers — GitHub (`AddGitHub`) |
+| `Klassd.Auth.OAuth` | OAuth 2.0 (non-OIDC) providers — GitHub, **Facebook, Instagram, TikTok** |
 | `Klassd.Auth.Data.Sqlite` | SQLite adapter (raw `Microsoft.Data.Sqlite`, JSON-in-TEXT) |
 | `Klassd.Auth.Data.Postgres` | PostgreSQL adapter (raw `Npgsql`, jsonb) |
 | `Klassd.Auth.Data.MongoDb` | MongoDB adapter (`MongoDB.Driver`) |
@@ -59,6 +64,55 @@ That's the whole host. The endpoints are shipped by the library — you don't ha
 `app.MapKlassdAuthAdmin(authorizationPolicy: "Admin")` adds (protected) admin endpoints —
 `GET/POST /auth/admin/users`, `GET /auth/admin/users/{id}`, `POST .../disable`,
 `POST .../reset-password`, `GET/PUT .../roles`. Responses never include password hashes.
+
+### Passwordless (one-time codes — email & SMS)
+
+```csharp
+auth.AddPasswordless();                       // codes default to 6 digits, 10-min TTL, 5 attempts
+auth.AddTwilioSms(sid, token, fromNumber);    // optional: deliver SMS codes for real (else console)
+
+app.MapKlassdPasswordless();                  // JSON: POST /auth/passwordless/{start,verify}
+```
+
+`start` sends a code to an email **or** phone (`channel` is `"Email"`/`"Sms"`) and always returns
+`202` — it never reveals whether the identifier exists. `verify` checks the code (fixed-time
+compare, TTL + attempt lockout) and returns session tokens, resolving or auto-provisioning the user
+by email/phone. A cookie variant (`MapKlassdPasswordlessCookie`) signs the user in instead.
+
+### Passkeys (WebAuthn / FIDO2)
+
+```csharp
+auth.AddPasskeys(o => { o.ServerDomain = "example.com"; o.Origins = ["https://example.com"]; });
+
+app.MapKlassdPasskeys();          // POST /passkeys/{register,login}/{options,verify}
+```
+
+Built on **Fido2NetLib**. Registration requires an authenticated user; login supports
+usernameless/discoverable credentials. The ceremony challenge is held in a **stateless,
+DataProtection-protected cookie** by default (multi-node-safe, no shared cache), with an in-memory
+option for single-node. `register/verify` issues session tokens (or a cookie via
+`MapKlassdPasskeysCookie`). Credentials persist in a `passkey_credentials` table per adapter.
+
+### Account linking
+
+An account is one identity with N attachable `LoginMethod`s — add or remove any kind:
+
+```csharp
+// On the cookie endpoints (the signed-in user links to THEIR account):
+//   GET  /auth/link/{scheme}      → challenge a provider, attach it on callback
+//   POST /auth/link/password      → a social-/passwordless-only user gains a password
+//   POST /auth/unlink             → remove a method (the last one is guarded)
+//   GET  /auth/me/methods         → list the caller's own login methods
+
+// From code:
+await accounts.LinkExternalAsync(userId, "facebook", info);   // never steals an identity owned elsewhere
+await accounts.AddPasswordAsync(userId, password);            // false if one already exists
+await accounts.UnlinkAsync(userId, methodId);                 // false if it's the last method
+```
+
+Linking is explicit and tied to the signed-in session. Optionally, an unauthenticated social
+sign-in can auto-merge into an existing account — but **only** on a provider-**verified** matching
+email (`AutoLinkByVerifiedEmail`, off by default; unverified-email auto-link is a takeover vector).
 
 ### Token signing
 
@@ -150,6 +204,10 @@ This gives `POST /auth/login` (username-or-email + password), `POST /auth/logout
 `GET /auth/external/{scheme}` → provider → callback that provisions the user via
 `UserAccountService` and issues the app cookie. Entra is OIDC under the hood (stable id from the
 `oid` claim, name from `preferred_username`); add other OIDC providers with `auth.AddOpenIdConnect(...)`.
+
+Social OAuth 2.0 providers live in `Klassd.Auth.OAuth`: `auth.AddGitHub(...)`, `auth.AddFacebook(...)`,
+`auth.AddInstagram(...)`, `auth.AddTikTok(...)`. Note Instagram and TikTok return **no email** (the
+stable subject is the provider id), so they only ever explicit-link or provision a fresh account.
 
 ## Copyright
 
