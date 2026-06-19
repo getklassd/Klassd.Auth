@@ -67,6 +67,12 @@ public sealed class SqliteSchemaInitializer(SqliteContext ctx) : IAuthStorageIni
                 expires_at TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                token_hash TEXT PRIMARY KEY,
+                user_id    TEXT NOT NULL,
+                expires_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS passwordless_codes (
                 identifier TEXT PRIMARY KEY,
                 channel    INTEGER NOT NULL,

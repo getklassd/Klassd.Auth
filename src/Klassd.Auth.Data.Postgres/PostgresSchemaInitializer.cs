@@ -69,6 +69,12 @@ public sealed class PostgresSchemaInitializer(PostgresContext ctx) : IAuthStorag
                 expires_at timestamptz NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                token_hash text PRIMARY KEY,
+                user_id    text NOT NULL,
+                expires_at timestamptz NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS passwordless_codes (
                 identifier text PRIMARY KEY,
                 channel    int  NOT NULL,

@@ -4,6 +4,7 @@
     <Project Path="src/Klassd.Auth.AspNetCore.Cookies/Klassd.Auth.AspNetCore.Cookies.csproj" />
     <Project Path="src/Klassd.Auth.AspNetCore/Klassd.Auth.AspNetCore.csproj" />
     <Project Path="src/Klassd.Auth.Core/Klassd.Auth.Core.csproj" />
+    <Project Path="src/Klassd.Auth.Dashboard/Klassd.Auth.Dashboard.csproj" />
     <Project Path="src/Klassd.Auth.Data.MongoDb/Klassd.Auth.Data.MongoDb.csproj" />
     <Project Path="src/Klassd.Auth.Data.Postgres/Klassd.Auth.Data.Postgres.csproj" />
     <Project Path="src/Klassd.Auth.Data.Sqlite/Klassd.Auth.Data.Sqlite.csproj" />
@@ -13,6 +14,7 @@
     <Project Path="src/Klassd.Auth.Passwordless/Klassd.Auth.Passwordless.csproj" />
     <Project Path="src/Klassd.Auth.Sample/Klassd.Auth.Sample.csproj" />
     <Project Path="src/Klassd.Auth.Sms.Twilio/Klassd.Auth.Sms.Twilio.csproj" />
+    <Project Path="src/Klassd.Auth.Webhooks/Klassd.Auth.Webhooks.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Klassd.Auth.Tests/Klassd.Auth.Tests.csproj" />

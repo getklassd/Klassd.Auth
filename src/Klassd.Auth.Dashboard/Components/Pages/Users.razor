@@ -1,0 +1,218 @@
+@page "/auth/dashboard"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject UserAccountService Accounts
+@inject RolesService Roles
+@inject AccountLifecycleService Lifecycle
+
+<PageTitle>Klassd.Auth — Users</PageTitle>
+
+<div class="kad-layout">
+    <aside class="kad-list">
+        <div class="kad-list-head">
+            <input class="kad-search" placeholder="Search users…" @bind="_search" @bind:event="oninput" />
+            <button class="kad-btn kad-btn-primary" @onclick="StartCreate">+ New</button>
+        </div>
+        @if (_users is null)
+        {
+            <p class="kad-empty">Loading…</p>
+        }
+        else
+        {
+            <ul class="kad-users">
+                @foreach (var u in Filtered())
+                {
+                    <li>
+                        <button class="@(u.Id == _selected?.Id && !_creating ? "kad-active" : "")" @onclick="() => Select(u)">
+                            <span class="kad-avatar">@Initial(u)</span>
+                            <span class="kad-name @(u.Disabled ? "kad-disabled" : "")">@Display(u)</span>
+                            @if (u.Disabled) { <span class="kad-badge kad-badge-muted">disabled</span> }
+                        </button>
+                    </li>
+                }
+            </ul>
+        }
+    </aside>
+
+    <section class="kad-detail">
+        @if (_creating)
+        {
+            <h1>New user</h1>
+            <div class="kad-field"><label>Username</label><input @bind="_newUsername" placeholder="jane" /></div>
+            <div class="kad-field"><label>Email</label><input @bind="_newEmail" placeholder="jane@example.com" /></div>
+            <div class="kad-field"><label>Password</label><input type="password" @bind="_newPassword" /></div>
+            <p class="kad-hint">Provide a username, an email, or both. External / passwordless users are created on first sign-in.</p>
+            <div class="kad-actions">
+                <button class="kad-btn" @onclick="() => _creating = false">Cancel</button>
+                <button class="kad-btn kad-btn-primary" @onclick="CreateAsync">Create user</button>
+            </div>
+            @if (_error is not null) { <p class="kad-error">@_error</p> }
+        }
+        else if (_selected is null)
+        {
+            <p class="kad-empty">Select a user, or create one.</p>
+        }
+        else
+        {
+            <div class="kad-detail-head">
+                <h1>@Display(_selected)</h1>
+                <button class="kad-btn" @onclick="ToggleDisabledAsync">@(_selected.Disabled ? "Enable" : "Disable")</button>
+            </div>
+
+            <div class="kad-field"><label>User id</label><div class="kad-mono">@_selected.Id</div></div>
+            <div class="kad-field"><label>Email</label><div class="kad-mono">@(_selected.PrimaryEmail ?? "—")</div></div>
+            <div class="kad-field"><label>Phone</label><div class="kad-mono">@(_selected.PrimaryPhone ?? "—")</div></div>
+            <div class="kad-field"><label>Status</label><div>@(_selected.Disabled ? "Disabled" : "Active")</div></div>
+
+            <h2>Roles</h2>
+            <div class="kad-field">
+                <input @bind="_rolesText" placeholder="comma,separated,roles" />
+                <button class="kad-btn" @onclick="SaveRolesAsync">Save roles</button>
+            </div>
+
+            <h2>Set password</h2>
+            <div class="kad-field">
+                <input type="password" @bind="_password" placeholder="New password" />
+                <button class="kad-btn" @onclick="SetPasswordAsync">Set</button>
+            </div>
+
+            <h2>Login methods</h2>
+            <ul class="kad-methods">
+                @foreach (var m in _selected.LoginMethods)
+                {
+                    <li>
+                        <span class="kad-badge">@m.Kind</span>
+                        <span class="kad-method-id">@(m.ProviderId ?? m.Email ?? m.Phone ?? "—")</span>
+                        <button class="kad-btn kad-btn-sm" disabled="@(_selected.LoginMethods.Count <= 1)"
+                                @onclick="() => UnlinkAsync(m.Id)">Unlink</button>
+                    </li>
+                }
+            </ul>
+
+            <h2 class="kad-danger-h">Danger zone</h2>
+            <div class="kad-danger">
+                <p>Type <code>@Display(_selected)</code> to confirm a destructive action.</p>
+                <input @bind="_confirm" @bind:event="oninput" placeholder="confirm name" />
+                <div class="kad-actions">
+                    <button class="kad-btn kad-btn-warn" disabled="@(!ConfirmMatches)" @onclick="AnonymizeAsync">Anonymize (GDPR)</button>
+                    <button class="kad-btn kad-btn-danger" disabled="@(!ConfirmMatches)" @onclick="DeleteAsync">Delete permanently</button>
+                </div>
+            </div>
+            @if (_status is not null) { <p class="kad-status">@_status</p> }
+        }
+    </section>
+</div>
+
+@code {
+    private IReadOnlyList<User>? _users;
+    private User? _selected;
+    private string _search = "";
+
+    private bool _creating;
+    private string _newUsername = "", _newEmail = "", _newPassword = "";
+    private string _rolesText = "", _password = "", _confirm = "";
+    private string? _error, _status;
+
+    private bool ConfirmMatches => _selected is not null && _confirm == Display(_selected);
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _users = await Accounts.GetAllAsync();
+        if (_selected is not null) _selected = _users.FirstOrDefault(u => u.Id == _selected.Id);
+    }
+
+    private IEnumerable<User> Filtered() =>
+        _users!.Where(u => string.IsNullOrWhiteSpace(_search)
+            || Display(u).Contains(_search, StringComparison.OrdinalIgnoreCase)
+            || u.Id.Contains(_search, StringComparison.OrdinalIgnoreCase));
+
+    private static string Display(User u) =>
+        !string.IsNullOrEmpty(u.Username) ? u.Username
+        : !string.IsNullOrEmpty(u.PrimaryEmail) ? u.PrimaryEmail!
+        : !string.IsNullOrEmpty(u.PrimaryPhone) ? u.PrimaryPhone!
+        : u.Id;
+
+    private static string Initial(User u) => Display(u)[..1].ToUpperInvariant();
+
+    private void StartCreate()
+    {
+        _creating = true; _selected = null; _error = null;
+        _newUsername = _newEmail = _newPassword = "";
+    }
+
+    private async Task Select(User u)
+    {
+        _creating = false; _selected = u; _status = _error = null;
+        _password = _confirm = "";
+        _rolesText = string.Join(", ", await Roles.GetRolesAsync(u.Id));
+    }
+
+    private async Task CreateAsync()
+    {
+        try
+        {
+            var created = await Accounts.CreateLocalAsync(
+                string.IsNullOrWhiteSpace(_newUsername) ? null : _newUsername,
+                string.IsNullOrWhiteSpace(_newEmail) ? null : _newEmail,
+                _newPassword);
+            _creating = false;
+            await ReloadAsync();
+            await Select(created);
+        }
+        catch (ArgumentException ex) { _error = ex.Message; }
+    }
+
+    private async Task ToggleDisabledAsync()
+    {
+        if (_selected is null) return;
+        if (_selected.Disabled) await Lifecycle.EnableAsync(_selected.Id);
+        else await Lifecycle.DisableAsync(_selected.Id);
+        await ReloadAsync();
+        _status = _selected?.Disabled == true ? "User disabled (sessions revoked)." : "User enabled.";
+    }
+
+    private async Task SaveRolesAsync()
+    {
+        if (_selected is null) return;
+        var roles = _rolesText.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        await Roles.SetRolesAsync(_selected.Id, roles);
+        _status = "Roles updated.";
+    }
+
+    private async Task SetPasswordAsync()
+    {
+        if (_selected is null || string.IsNullOrEmpty(_password)) { _status = "Enter a password first."; return; }
+        var hasPassword = _selected.LoginMethods.Any(m => m.Kind == LoginMethodKind.EmailPassword);
+        if (hasPassword) await Accounts.ResetPasswordAsync(_selected.Id, _password);
+        else await Accounts.AddPasswordAsync(_selected.Id, _password);
+        _password = "";
+        _status = "Password set.";
+    }
+
+    private async Task UnlinkAsync(string methodId)
+    {
+        if (_selected is null) return;
+        if (await Accounts.UnlinkAsync(_selected.Id, methodId)) { await ReloadAsync(); _status = "Method unlinked."; }
+        else _status = "Can't unlink the user's only login method.";
+    }
+
+    private async Task AnonymizeAsync()
+    {
+        if (_selected is null || !ConfirmMatches) return;
+        await Lifecycle.AnonymizeAsync(_selected.Id);
+        _confirm = "";
+        await ReloadAsync();
+        _status = "User anonymized.";
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (_selected is null || !ConfirmMatches) return;
+        await Lifecycle.DeleteAsync(_selected.Id);
+        _selected = null; _confirm = "";
+        await ReloadAsync();
+        _status = "User deleted.";
+    }
+}

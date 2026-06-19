@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Klassd.Auth.Core.Modules.EmailPassword;
 using Klassd.Auth.Core.Modules.EmailVerification;
 using Klassd.Auth.Core.Modules.Mfa;
+using Klassd.Auth.Core.Modules.Password;
 using Klassd.Auth.Core.Modules.UserMetadata;
 using Klassd.Auth.Core.Sessions;
 using Microsoft.AspNetCore.Builder;
@@ -19,6 +20,9 @@ public sealed class KlassdAuthEndpointOptions
 
     /// <summary>Base URL the email-verification link points at (the front-end verify page).</summary>
     public string EmailVerifyUrlBase { get; set; } = "https://app.example/verify";
+
+    /// <summary>Base URL the password-reset link points at (the front-end reset page; gets <c>?token=</c>).</summary>
+    public string PasswordResetUrlBase { get; set; } = "https://app.example/reset-password";
 }
 
 /// <summary>
@@ -64,6 +68,19 @@ public static class KlassdAuthEndpoints
         {
             await sessions.RevokeAsync(req.SessionHandle);
             return Results.NoContent();
+        });
+
+        // ---- Password reset (forgot password) ----------------------------------------------
+        g.MapPost("/password/forgot", async (ForgotPassword req, PasswordResetService reset) =>
+        {
+            await reset.RequestAsync(req.Identifier, opts.PasswordResetUrlBase);
+            return Results.Accepted();   // always — never reveals whether the account exists
+        });
+
+        g.MapPost("/password/reset", async (ResetPassword req, PasswordResetService reset) =>
+        {
+            var r = await reset.ResetAsync(req.Token, req.NewPassword);
+            return r.Success ? Results.NoContent() : Results.BadRequest(new { error = r.Error });
         });
 
         // ---- Email verification ------------------------------------------------------------
@@ -113,6 +130,8 @@ public static class KlassdAuthEndpoints
     public sealed record Credentials(string Email, string Password);
     public sealed record RefreshRequest(string RefreshToken);
     public sealed record LogoutRequest(string SessionHandle);
+    public sealed record ForgotPassword(string Identifier);
+    public sealed record ResetPassword(string Token, string NewPassword);
     public sealed record SendVerification(string UserId, string Email);
     public sealed record MfaEnroll(string AccountLabel);
     public sealed record MfaVerify(string Secret, string Code);

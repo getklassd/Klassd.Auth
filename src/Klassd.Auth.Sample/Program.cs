@@ -9,6 +9,8 @@ using Klassd.Auth.OpenIdConnect;
 using Klassd.Auth.Passwordless;
 using Klassd.Auth.Passkeys;
 using Klassd.Auth.Sms.Twilio;
+using Klassd.Auth.Dashboard;
+using Klassd.Auth.Webhooks;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,14 +63,25 @@ auth.AddPasskeys(o =>
     o.Origins = [builder.Configuration["Auth:Passkeys:Origin"] ?? "https://localhost:5001"];
 });
 
+// 6. Blazor admin dashboard (Interactive Server) at /auth/dashboard.
+auth.AddKlassdAuthDashboard();
+
+// 7. Inbound HMAC webhooks so customer-service tooling can disable/delete/anonymize users.
+auth.AddKlassdAuthWebhooks(o =>
+    o.SigningSecrets.Add(builder.Configuration["Auth:Webhooks:Secret"] ?? "dev-webhook-secret-change-me"));
+
 var app = builder.Build();
 
 app.UseStaticFiles();         // serves wwwroot/ (the passkey/passwordless browser test page)
-app.MapKlassdAuth();          // JSON/JWT API (signup/signin/refresh/email/mfa/metadata/jwks)
+app.MapStaticAssets();        // RCL static assets (the dashboard's stylesheet under _content/…)
+app.MapKlassdAuth();          // JSON/JWT API (signup/signin/refresh/email/mfa/metadata/jwks/password)
 app.UseKlassdAuthCookies();   // cookie login + external SSO challenge/callback
+app.UseAntiforgery();         // required by the Blazor dashboard
 app.MapKlassdAuthAdmin(authorizationPolicy: "Admin");   // admin user management
 app.MapKlassdPasswordless();  // JSON passwordless API (start/verify → session tokens)
 app.MapKlassdPasskeys();      // JSON passkey ceremonies (register/login → session tokens)
+app.MapKlassdAuthWebhooks();  // POST /auth/webhooks/users (HMAC-signed)
+app.MapKlassdAuthDashboard(authorizationPolicy: "Admin");   // Blazor user-admin UI at /auth/dashboard
 
 // Example protected endpoint reading the cookie identity.
 app.MapGet("/me", (ClaimsPrincipal user) =>

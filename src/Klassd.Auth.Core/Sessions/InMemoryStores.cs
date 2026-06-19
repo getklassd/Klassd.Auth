@@ -39,6 +39,21 @@ public sealed class InMemoryEmailVerificationTokenStore : IEmailVerificationToke
         Task.FromResult(_tokens.TryRemove(tokenHash, out var t) ? t : null);
 }
 
+/// <summary>In-memory password-reset token store (default / tests). Tokens are lost on restart.</summary>
+public sealed class InMemoryPasswordResetTokenStore : IPasswordResetTokenStore
+{
+    private readonly ConcurrentDictionary<string, PasswordResetToken> _tokens = new();
+
+    public Task StoreAsync(string tokenHash, string userId, DateTimeOffset expires, CancellationToken ct = default)
+    {
+        _tokens[tokenHash] = new PasswordResetToken(userId, expires);
+        return Task.CompletedTask;
+    }
+
+    public Task<PasswordResetToken?> ConsumeAsync(string tokenHash, CancellationToken ct = default) =>
+        Task.FromResult(_tokens.TryRemove(tokenHash, out var t) ? t : null);
+}
+
 /// <summary>In-memory passwordless-code store (default / tests). Codes are lost on restart.</summary>
 public sealed class InMemoryPasswordlessCodeStore : IPasswordlessCodeStore
 {
@@ -99,6 +114,13 @@ public sealed class InMemoryPasskeyCredentialStore : IPasskeyCredentialStore
             c.SignCount = newSignCount;
             c.LastUsedAt = usedAt;
         }
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteByUserIdAsync(string userId, CancellationToken ct = default)
+    {
+        foreach (var kv in _creds.Where(kv => kv.Value.UserId == userId).ToList())
+            _creds.TryRemove(kv.Key, out _);
         return Task.CompletedTask;
     }
 }

@@ -34,6 +34,20 @@ public sealed class MongoEmailVerificationTokenStore(MongoContext ctx) : IEmailV
     }
 }
 
+public sealed class MongoPasswordResetTokenStore(MongoContext ctx) : IPasswordResetTokenStore
+{
+    public Task StoreAsync(string tokenHash, string userId, DateTimeOffset expires, CancellationToken ct = default) =>
+        ctx.PasswordResetTokens.InsertOneAsync(
+            new PasswordResetTokenDoc { TokenHash = tokenHash, UserId = userId, Expires = expires },
+            cancellationToken: ct);
+
+    public async Task<PasswordResetToken?> ConsumeAsync(string tokenHash, CancellationToken ct = default)
+    {
+        var doc = await ctx.PasswordResetTokens.FindOneAndDeleteAsync(t => t.TokenHash == tokenHash, cancellationToken: ct);
+        return doc is null ? null : new PasswordResetToken(doc.UserId, doc.Expires);
+    }
+}
+
 public sealed class MongoPasswordlessCodeStore(MongoContext ctx) : IPasswordlessCodeStore
 {
     public Task StoreAsync(string identifier, PasswordlessChannel channel, string codeHash, DateTimeOffset expires, CancellationToken ct = default) =>
@@ -79,4 +93,7 @@ public sealed class MongoPasskeyCredentialStore(MongoContext ctx) : IPasskeyCred
                 .Set(c => c.SignCount, (long)newSignCount)
                 .Set(c => c.LastUsedAt, usedAt),
             cancellationToken: ct);
+
+    public Task DeleteByUserIdAsync(string userId, CancellationToken ct = default) =>
+        ctx.PasskeyCredentials.DeleteManyAsync(c => c.UserId == userId, ct);
 }

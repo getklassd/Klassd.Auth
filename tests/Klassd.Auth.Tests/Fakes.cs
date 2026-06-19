@@ -64,6 +64,12 @@ public sealed class FakeUserStore : IUserStore
         foreach (var u in _users.Values) u.LoginMethods.RemoveAll(m => m.Id == methodId);
         return Task.CompletedTask;
     }
+
+    public Task DeleteUserAsync(string userId, CancellationToken ct = default)
+    {
+        _users.Remove(userId);
+        return Task.CompletedTask;
+    }
 }
 
 public sealed class FakeSessionStore : ISessionStore
@@ -88,6 +94,19 @@ public sealed class FakeSessionStore : ISessionStore
     public Task RevokeAsync(string handle, CancellationToken ct = default)
     {
         if (_sessions.TryGetValue(handle, out var s)) s.Revoked = true;
+        return Task.CompletedTask;
+    }
+
+    public Task RevokeAllForUserAsync(string userId, CancellationToken ct = default)
+    {
+        foreach (var s in _sessions.Values.Where(s => s.UserId == userId)) s.Revoked = true;
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteAllForUserAsync(string userId, CancellationToken ct = default)
+    {
+        foreach (var h in _sessions.Where(kv => kv.Value.UserId == userId).Select(kv => kv.Key).ToList())
+            _sessions.Remove(h);
         return Task.CompletedTask;
     }
 }

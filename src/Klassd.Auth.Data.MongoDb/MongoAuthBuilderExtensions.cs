@@ -52,6 +52,7 @@ public static class MongoAuthBuilderExtensions
         auth.Services.AddScoped<IUserMetadataStore, MongoUserMetadataStore>();
         auth.Services.AddSingleton<ISigningKeyStore, MongoSigningKeyStore>();
         auth.Services.AddSingleton<IEmailVerificationTokenStore, MongoEmailVerificationTokenStore>();
+        auth.Services.AddSingleton<IPasswordResetTokenStore, MongoPasswordResetTokenStore>();
         auth.Services.AddSingleton<IPasswordlessCodeStore, MongoPasswordlessCodeStore>();
         auth.Services.AddSingleton<IPasskeyCredentialStore, MongoPasskeyCredentialStore>();
         auth.Services.AddSingleton<IAuthStorageInitializer, MongoSchemaInitializer>();
@@ -96,6 +97,11 @@ public static class MongoAuthBuilderExtensions
                 cm.MapIdMember(x => x.KeyId);
             });
             BsonClassMap.RegisterClassMap<EmailVerificationTokenDoc>(cm =>
+            {
+                cm.AutoMap();
+                cm.MapIdMember(x => x.TokenHash);
+            });
+            BsonClassMap.RegisterClassMap<PasswordResetTokenDoc>(cm =>
             {
                 cm.AutoMap();
                 cm.MapIdMember(x => x.TokenHash);

@@ -12,12 +12,17 @@
     <ProjectReference Include="..\Klassd.Auth.Passwordless\Klassd.Auth.Passwordless.csproj" />
     <ProjectReference Include="..\Klassd.Auth.Passkeys\Klassd.Auth.Passkeys.csproj" />
     <ProjectReference Include="..\Klassd.Auth.Sms.Twilio\Klassd.Auth.Sms.Twilio.csproj" />
+    <ProjectReference Include="..\Klassd.Auth.Webhooks\Klassd.Auth.Webhooks.csproj" />
+    <ProjectReference Include="..\Klassd.Auth.Dashboard\Klassd.Auth.Dashboard.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- This host's only Blazor components come from the Klassd.Auth.Dashboard RCL, so it must opt in
+         to the web assets or it 404s on _framework/blazor.web.js. -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
   </PropertyGroup>
 
 </Project>

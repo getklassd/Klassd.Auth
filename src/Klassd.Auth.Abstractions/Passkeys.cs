@@ -36,4 +36,7 @@ public interface IPasskeyCredentialStore
     Task<IReadOnlyList<PasskeyCredential>> GetByUserHandleAsync(byte[] userHandle, CancellationToken ct = default);
     Task AddAsync(PasskeyCredential credential, CancellationToken ct = default);
     Task UpdateSignCountAsync(byte[] credentialId, ulong newSignCount, DateTimeOffset usedAt, CancellationToken ct = default);
+
+    /// <summary>Deletes every passkey credential owned by a user (e.g. on hard delete / anonymize).</summary>
+    Task DeleteByUserIdAsync(string userId, CancellationToken ct = default);
 }

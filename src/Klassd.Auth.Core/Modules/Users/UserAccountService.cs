@@ -12,6 +12,9 @@ public enum LinkOutcome { Linked, AlreadyLinkedToThisUser, ConflictOwnedByAnothe
 
 public sealed record LinkResult(LinkOutcome Outcome, User? User = null);
 
+/// <summary>Outcome of setting a user's primary email.</summary>
+public enum EmailUpdateOutcome { Updated, UserNotFound, EmailInUse }
+
 /// <summary>
 /// User lifecycle + credential management — the union of what Klassd CMS's UserService and
 /// Klassd.Workflows's WorkflowsUserService expose, so one service serves both. Identity can be
@@ -200,6 +203,55 @@ public sealed class UserAccountService(IUserStore users, IPasswordHasher hasher)
             CreatedAt = DateTimeOffset.UtcNow,
         }, ct);
         return true;
+    }
+
+    /// <summary>True if <paramref name="email"/> is free (unused, or already this user's primary).</summary>
+    public async Task<bool> IsEmailAvailableAsync(string userId, string email, CancellationToken ct = default)
+    {
+        var owner = await users.FindByEmailAsync(Norm(email), ct);
+        return owner is null || owner.Id == userId;
+    }
+
+    /// <summary>
+    /// Sets a user's primary email — the supported way to collect an address from a provider that
+    /// doesn't share one (Instagram/TikTok), after ownership is proven. When <paramref name="verified"/>,
+    /// it also surfaces the email as a verified login method (so it's usable, e.g. for passwordless).
+    /// </summary>
+    public async Task<EmailUpdateOutcome> SetPrimaryEmailAsync(
+        string userId, string email, bool verified, CancellationToken ct = default)
+    {
+        email = Norm(email);
+        var user = await users.FindByIdAsync(userId, ct);
+        if (user is null) return EmailUpdateOutcome.UserNotFound;
+
+        var owner = await users.FindByEmailAsync(email, ct);
+        if (owner is not null && owner.Id != userId) return EmailUpdateOutcome.EmailInUse;
+
+        user.PrimaryEmail = email;
+        await users.UpdateUserAsync(user, ct);
+
+        // Record verification on a login method (the model has no User-level verified flag), creating a
+        // passwordless identity for the address if the user doesn't already have one.
+        var method = user.LoginMethods.FirstOrDefault(m =>
+            string.Equals(m.Email, email, StringComparison.OrdinalIgnoreCase));
+        if (method is null)
+        {
+            await users.AddLoginMethodAsync(new LoginMethod
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                UserId = userId,
+                Kind = LoginMethodKind.Passwordless,
+                Email = email,
+                EmailVerified = verified,
+                CreatedAt = DateTimeOffset.UtcNow,
+            }, ct);
+        }
+        else if (verified && !method.EmailVerified)
+        {
+            method.EmailVerified = true;
+            await users.UpdateLoginMethodAsync(method, ct);
+        }
+        return EmailUpdateOutcome.Updated;
     }
 
     private static LoginMethod NewExternalMethod(string userId, string provider, ExternalUserInfo info) => new()

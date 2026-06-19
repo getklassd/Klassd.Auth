@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Klassd.Auth.Dashboard</PackageId>
+    <Description>Drop-in Blazor (Interactive Server) admin dashboard for Klassd.Auth — list/search users, create, enable/disable, set password, edit roles, manage linked login methods, delete and anonymize. AddKlassdAuthDashboard() + MapKlassdAuthDashboard(). Packaged as a Razor Class Library.</Description>
+    <AddRazorSupportForMvc>true</AddRazorSupportForMvc>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <!-- NOTE: a host whose only Blazor components come from this RCL must set
+       <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets> in its OWN csproj, or it 404s on
+       _framework/blazor.web.js. (A package can't ship that — it gates a restore-time download.) -->
+
+  <ItemGroup>
+    <SupportedPlatform Include="browser" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+  </ItemGroup>
+
+</Project>

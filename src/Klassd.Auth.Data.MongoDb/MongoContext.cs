@@ -20,6 +20,7 @@ public sealed class MongoContext
         Metadata = db.GetCollection<MetadataDoc>("user_metadata");
         SigningKeys = db.GetCollection<SigningKeyDoc>("signing_keys");
         EmailVerificationTokens = db.GetCollection<EmailVerificationTokenDoc>("email_verification_tokens");
+        PasswordResetTokens = db.GetCollection<PasswordResetTokenDoc>("password_reset_tokens");
         PasswordlessCodes = db.GetCollection<PasswordlessCodeDoc>("passwordless_codes");
         PasskeyCredentials = db.GetCollection<PasskeyCredentialDoc>("passkey_credentials");
     }
@@ -29,6 +30,7 @@ public sealed class MongoContext
     public IMongoCollection<MetadataDoc> Metadata { get; }
     public IMongoCollection<SigningKeyDoc> SigningKeys { get; }
     public IMongoCollection<EmailVerificationTokenDoc> EmailVerificationTokens { get; }
+    public IMongoCollection<PasswordResetTokenDoc> PasswordResetTokens { get; }
     public IMongoCollection<PasswordlessCodeDoc> PasswordlessCodes { get; }
     public IMongoCollection<PasskeyCredentialDoc> PasskeyCredentials { get; }
 }
@@ -135,6 +137,13 @@ public sealed class EmailVerificationTokenDoc
     public required string TokenHash { get; set; }  // mapped to _id
     public required string UserId { get; set; }
     public required string Email { get; set; }
+    public DateTimeOffset Expires { get; set; }
+}
+
+public sealed class PasswordResetTokenDoc
+{
+    public required string TokenHash { get; set; }  // mapped to _id
+    public required string UserId { get; set; }
     public DateTimeOffset Expires { get; set; }
 }
 

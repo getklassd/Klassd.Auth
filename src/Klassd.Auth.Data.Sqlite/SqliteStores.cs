@@ -201,6 +201,20 @@ public sealed class SqliteUserStore(SqliteContext ctx) : IUserStore
         cmd.Parameters.AddWithValue("$id", methodId);
         await cmd.ExecuteNonQueryAsync(ct);
     }
+
+    public async Task DeleteUserAsync(string userId, CancellationToken ct = default)
+    {
+        await using var conn = ctx.Open();
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        foreach (var sql in new[] { "DELETE FROM login_methods WHERE user_id = $id", "DELETE FROM users WHERE id = $id" })
+        {
+            var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.Parameters.AddWithValue("$id", userId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        await tx.CommitAsync(ct);
+    }
 }
 
 public sealed class SqliteSessionStore(SqliteContext ctx) : ISessionStore
@@ -255,6 +269,24 @@ public sealed class SqliteSessionStore(SqliteContext ctx) : ISessionStore
         var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE sessions SET revoked = 1 WHERE handle = $h";
         cmd.Parameters.AddWithValue("$h", handle);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task RevokeAllForUserAsync(string userId, CancellationToken ct = default)
+    {
+        await using var conn = ctx.Open();
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE sessions SET revoked = 1 WHERE user_id = $uid";
+        cmd.Parameters.AddWithValue("$uid", userId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task DeleteAllForUserAsync(string userId, CancellationToken ct = default)
+    {
+        await using var conn = ctx.Open();
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM sessions WHERE user_id = $uid";
+        cmd.Parameters.AddWithValue("$uid", userId);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 

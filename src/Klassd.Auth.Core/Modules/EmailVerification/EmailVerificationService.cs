@@ -34,6 +34,17 @@ public sealed class EmailVerificationService(
         await email.SendAsync(toEmail, "Verify your email", $"Verify here: {verifyUrlBase}?token={raw}", ct);
     }
 
+    /// <summary>
+    /// Consumes a token and returns its record (user + email) without touching login methods — for
+    /// callers that act on the result themselves, e.g. setting a primary email after proof of
+    /// ownership. Returns null if the token is unknown or expired.
+    /// </summary>
+    public async Task<EmailVerificationToken?> ConsumeTokenAsync(string token, CancellationToken ct = default)
+    {
+        var record = await tokens.ConsumeAsync(Hash(token), ct);
+        return record is not null && record.Expires >= DateTimeOffset.UtcNow ? record : null;
+    }
+
     public async Task<bool> VerifyAsync(string token, CancellationToken ct = default)
     {
         var record = await tokens.ConsumeAsync(Hash(token), ct);

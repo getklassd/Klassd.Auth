@@ -204,6 +204,20 @@ public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
         cmd.Parameters.AddWithValue("id", methodId);
         await cmd.ExecuteNonQueryAsync(ct);
     }
+
+    public async Task DeleteUserAsync(string userId, CancellationToken ct = default)
+    {
+        await using var conn = await ctx.OpenAsync(ct);
+        await using var tx = await conn.BeginTransactionAsync(ct);
+        foreach (var sql in new[] { "DELETE FROM login_methods WHERE user_id = @id", "DELETE FROM users WHERE id = @id" })
+        {
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = sql;
+            cmd.Parameters.AddWithValue("id", userId);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        await tx.CommitAsync(ct);
+    }
 }
 
 public sealed class PostgresSessionStore(PostgresContext ctx) : ISessionStore
@@ -258,6 +272,24 @@ public sealed class PostgresSessionStore(PostgresContext ctx) : ISessionStore
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE sessions SET revoked = true WHERE handle = @h";
         cmd.Parameters.AddWithValue("h", handle);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task RevokeAllForUserAsync(string userId, CancellationToken ct = default)
+    {
+        await using var conn = await ctx.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE sessions SET revoked = true WHERE user_id = @uid";
+        cmd.Parameters.AddWithValue("uid", userId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task DeleteAllForUserAsync(string userId, CancellationToken ct = default)
+    {
+        await using var conn = await ctx.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM sessions WHERE user_id = @uid";
+        cmd.Parameters.AddWithValue("uid", userId);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 

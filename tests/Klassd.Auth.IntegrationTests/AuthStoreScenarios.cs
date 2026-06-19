@@ -123,6 +123,48 @@ internal static class AuthStoreScenarios
         await Assert.That(afterRemove!.LoginMethods.Count).IsEqualTo(1);
     }
 
+    // ---- Hard delete + cascade (sessions/passkeys persist-then-gone) ------------------------
+    public static async Task UserDeleteCascade(IServiceProvider sp)
+    {
+        await using var scope = sp.CreateAsyncScope();
+        var users = scope.ServiceProvider.GetRequiredService<IUserStore>();
+        var sessions = scope.ServiceProvider.GetRequiredService<ISessionStore>();
+        var passkeys = scope.ServiceProvider.GetRequiredService<IPasskeyCredentialStore>();
+
+        var userId = Nid();
+        await users.AddUserAsync(new User
+        {
+            Id = userId, PrimaryEmail = $"{Nid()}@example.com", CreatedAt = DateTimeOffset.UtcNow,
+            LoginMethods = { new LoginMethod { Id = Nid(), UserId = userId, Kind = LoginMethodKind.EmailPassword, CreatedAt = DateTimeOffset.UtcNow } },
+        });
+        await sessions.AddAsync(new SessionEntity { Handle = Nid(), UserId = userId, RefreshTokenHash = "h", CreatedAt = DateTimeOffset.UtcNow, RefreshExpiresAt = DateTimeOffset.UtcNow.AddDays(1) });
+        var credId = Guid.NewGuid().ToByteArray();
+        await passkeys.AddAsync(new PasskeyCredential { Id = Nid(), UserId = userId, CredentialId = credId, PublicKey = [1], UserHandle = [2], AaGuid = Guid.NewGuid(), CreatedAt = DateTimeOffset.UtcNow });
+
+        await Assert.That(await users.FindByIdAsync(userId)).IsNotNull();
+
+        await sessions.DeleteAllForUserAsync(userId);
+        await passkeys.DeleteByUserIdAsync(userId);
+        await users.DeleteUserAsync(userId);
+
+        await Assert.That(await users.FindByIdAsync(userId)).IsNull();
+        await Assert.That((await passkeys.GetByUserIdAsync(userId)).Count).IsEqualTo(0);
+    }
+
+    // ---- Password-reset token round-trip ----------------------------------------------------
+    public static async Task PasswordResetTokenRoundTrip(IServiceProvider sp)
+    {
+        await using var scope = sp.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IPasswordResetTokenStore>();
+
+        var hash = Nid();
+        await store.StoreAsync(hash, "user-1", DateTimeOffset.UtcNow.AddHours(1));
+        var consumed = await store.ConsumeAsync(hash);
+        await Assert.That(consumed).IsNotNull();
+        await Assert.That(consumed!.UserId).IsEqualTo("user-1");
+        await Assert.That(await store.ConsumeAsync(hash)).IsNull();   // single-use
+    }
+
     // ---- Passkey credentials ----------------------------------------------------------------
     public static async Task PasskeyCredentialRoundTrip(IServiceProvider sp)
     {

@@ -1,6 +1,8 @@
 using Klassd.Auth.Abstractions;
+using Klassd.Auth.Core.Modules.EmailVerification;
 using Klassd.Auth.Core.Modules.Users;
 using Klassd.Auth.Core.Security;
+using Klassd.Auth.Core.Sessions;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -125,6 +127,70 @@ public sealed class AccountLinkingTests
 
         var link = await accounts.LinkExternalAsync(user.Id, "instagram", Ext("ig-42"));
         await Assert.That(link.Outcome).IsEqualTo(LinkOutcome.Linked);
+    }
+
+    [Test]
+    public async Task SetPrimaryEmail_collects_a_verified_email_for_a_no_email_account()
+    {
+        var (accounts, _) = New();
+        // A TikTok/Instagram-shaped account: no email at all.
+        var user = (await accounts.ProvisionExternalAsync("tiktok", Ext("tt-7"), autoProvision: true))!;
+        await Assert.That(user.PrimaryEmail).IsNull();
+
+        var outcome = await accounts.SetPrimaryEmailAsync(user.Id, "New@User.com", verified: true);
+        await Assert.That(outcome).IsEqualTo(EmailUpdateOutcome.Updated);
+
+        var reloaded = (await accounts.GetByIdAsync(user.Id))!;
+        await Assert.That(reloaded.PrimaryEmail).IsEqualTo("new@user.com");                  // normalized
+        var emailMethod = reloaded.LoginMethods.FirstOrDefault(m => m.Email == "new@user.com");
+        await Assert.That(emailMethod).IsNotNull();
+        await Assert.That(emailMethod!.EmailVerified).IsTrue();                               // recorded as verified
+        // The collected email now resolves the user (e.g. for passwordless).
+        await Assert.That((await accounts.FindByEmailAsync("new@user.com"))!.Id).IsEqualTo(user.Id);
+    }
+
+    [Test]
+    public async Task SetPrimaryEmail_rejects_an_email_owned_by_another_user()
+    {
+        var (accounts, _) = New();
+        await accounts.CreateLocalAsync(null, "taken@x.com", "supersecret");
+        var other = (await accounts.ProvisionExternalAsync("tiktok", Ext("tt-8"), autoProvision: true))!;
+
+        await Assert.That(await accounts.IsEmailAvailableAsync(other.Id, "taken@x.com")).IsFalse();
+        await Assert.That(await accounts.SetPrimaryEmailAsync(other.Id, "taken@x.com", verified: true))
+            .IsEqualTo(EmailUpdateOutcome.EmailInUse);
+    }
+
+    [Test]
+    public async Task Email_collection_flow_request_then_confirm_sets_primary()
+    {
+        // End-to-end at the service layer: provision a no-email account, send a verification link,
+        // consume the token, and set the verified primary email — the path the cookie endpoints drive.
+        var users = new FakeUserStore();
+        var accounts = new UserAccountService(users, new Pbkdf2PasswordHasher());
+        var sender = new CapturingEmailSender();
+        var verification = new EmailVerificationService(users, sender, new InMemoryEmailVerificationTokenStore());
+
+        var user = (await accounts.ProvisionExternalAsync("instagram", Ext("ig-1"), autoProvision: true))!;
+
+        await verification.SendVerificationAsync(user.Id, "me@example.com", "https://app/confirm");
+        var token = sender.LastBody![(sender.LastBody!.IndexOf("token=", StringComparison.Ordinal) + 6)..].Trim();
+
+        var record = await verification.ConsumeTokenAsync(token);
+        await Assert.That(record).IsNotNull();
+        var outcome = await accounts.SetPrimaryEmailAsync(record!.UserId, record.Email, verified: true);
+        await Assert.That(outcome).IsEqualTo(EmailUpdateOutcome.Updated);
+        await Assert.That((await accounts.GetByIdAsync(user.Id))!.PrimaryEmail).IsEqualTo("me@example.com");
+
+        // Token is single-use.
+        await Assert.That(await verification.ConsumeTokenAsync(token)).IsNull();
+    }
+
+    private sealed class CapturingEmailSender : Klassd.Auth.Core.Modules.EmailVerification.IEmailSender
+    {
+        public string? LastBody;
+        public Task SendAsync(string to, string subject, string body, CancellationToken ct = default)
+        { LastBody = body; return Task.CompletedTask; }
     }
 
     [Test]

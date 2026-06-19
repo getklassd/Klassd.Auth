@@ -69,6 +69,32 @@ public sealed class PostgresEmailVerificationTokenStore(PostgresContext ctx) : I
     }
 }
 
+public sealed class PostgresPasswordResetTokenStore(PostgresContext ctx) : IPasswordResetTokenStore
+{
+    public async Task StoreAsync(string tokenHash, string userId, DateTimeOffset expires, CancellationToken ct = default)
+    {
+        await using var conn = await ctx.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "INSERT INTO password_reset_tokens (token_hash, user_id, expires_at) VALUES (@h, @uid, @exp)";
+        cmd.Parameters.AddWithValue("h", tokenHash);
+        cmd.Parameters.AddWithValue("uid", userId);
+        cmd.Parameters.AddWithValue("exp", expires);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<PasswordResetToken?> ConsumeAsync(string tokenHash, CancellationToken ct = default)
+    {
+        await using var conn = await ctx.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM password_reset_tokens WHERE token_hash = @h RETURNING user_id, expires_at";
+        cmd.Parameters.AddWithValue("h", tokenHash);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        return await r.ReadAsync(ct)
+            ? new PasswordResetToken(r.GetString(0), r.GetFieldValue<DateTimeOffset>(1))
+            : null;
+    }
+}
+
 public sealed class PostgresPasswordlessCodeStore(PostgresContext ctx) : IPasswordlessCodeStore
 {
     public async Task StoreAsync(string identifier, PasswordlessChannel channel, string codeHash, DateTimeOffset expires, CancellationToken ct = default)
@@ -194,6 +220,15 @@ public sealed class PostgresPasskeyCredentialStore(PostgresContext ctx) : IPassk
         cmd.Parameters.AddWithValue("sc", (long)newSignCount);
         cmd.Parameters.AddWithValue("lu", usedAt);
         cmd.Parameters.AddWithValue("c", credentialId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task DeleteByUserIdAsync(string userId, CancellationToken ct = default)
+    {
+        await using var conn = await ctx.OpenAsync(ct);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM passkey_credentials WHERE user_id = @uid";
+        cmd.Parameters.AddWithValue("uid", userId);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 }

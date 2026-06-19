@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Klassd.Auth.Webhooks</PackageId>
+    <Description>Inbound HMAC-signed webhooks for Klassd.Auth — let an external system (e.g. customer service) disable, enable, delete or anonymize a user. AddKlassdAuthWebhooks() + MapKlassdAuthWebhooks().</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+  </ItemGroup>
+
+</Project>

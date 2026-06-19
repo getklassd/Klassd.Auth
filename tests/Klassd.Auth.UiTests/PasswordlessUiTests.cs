@@ -12,6 +12,7 @@ namespace Klassd.Auth.UiTests;
 /// code from the sample's console output (the dev "email" sender prints it), then verify it and
 /// assert the API returns session tokens.
 /// </summary>
+[NotInParallel("sample-console")]   // reads one-time codes from the shared sample stdout
 public class PasswordlessUiTests : PageTest
 {
     [Test]

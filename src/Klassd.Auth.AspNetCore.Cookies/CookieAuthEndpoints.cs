@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Klassd.Auth.Core.Modules.EmailVerification;
 using Klassd.Auth.Core.Modules.Users;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
@@ -144,6 +145,38 @@ public static class CookieAuthEndpoints
                     email = m.Email, phone = m.Phone, emailVerified = m.EmailVerified,
                 }));
         }).RequireAuthorization();
+
+        // ---- Collect & verify a primary email (for providers that don't share one) --------
+        // Start: the signed-in user submits an email; we send a verification link to prove ownership.
+        g.MapPost("/me/email", async (
+            [FromForm] string email,
+            HttpContext http, UserAccountService accounts, EmailVerificationService verification) =>
+        {
+            if (http.User.FindFirstValue(ClaimTypes.NameIdentifier) is not { } userId) return Results.Unauthorized();
+            if (!await accounts.IsEmailAvailableAsync(userId, email)) return Results.Conflict(new { error = "EMAIL_IN_USE" });
+
+            // SendVerificationAsync appends "?token=…", so the base URL must carry no query string.
+            var confirmUrl = $"{http.Request.Scheme}://{http.Request.Host}{options.BasePath}/me/email/confirm";
+            await verification.SendVerificationAsync(userId, email, confirmUrl);
+            return Results.Accepted();
+        }).RequireAuthorization().DisableAntiforgery();
+
+        // Confirm: the link's token proves ownership → set it as the (verified) primary email.
+        // No auth required — the token itself carries the user + email and is the capability.
+        g.MapGet("/me/email/confirm", async (
+            string token, UserAccountService accounts, EmailVerificationService verification) =>
+        {
+            var record = await verification.ConsumeTokenAsync(token);
+            if (record is null) return Results.Redirect(AppendQuery("/", "email", "error"));
+
+            var status = await accounts.SetPrimaryEmailAsync(record.UserId, record.Email, verified: true) switch
+            {
+                EmailUpdateOutcome.Updated => "ok",
+                EmailUpdateOutcome.EmailInUse => "inuse",
+                _ => "error",
+            };
+            return Results.Redirect(AppendQuery("/", "email", status));
+        });
 
         return app;
     }

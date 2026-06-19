@@ -20,6 +20,8 @@ public feature model, not a port or migration of any existing project's source.
 | `Klassd.Auth.Passwordless` | Passwordless one-time codes over email/SMS — `AddPasswordless()` + endpoints |
 | `Klassd.Auth.Passkeys` | Passkeys (WebAuthn/FIDO2) via Fido2NetLib — `AddPasskeys()` + ceremony endpoints |
 | `Klassd.Auth.Sms.Twilio` | Twilio `ISmsSender` for passwordless-over-SMS — `AddTwilioSms()` |
+| `Klassd.Auth.Webhooks` | Inbound HMAC-signed webhooks to disable/enable/delete/anonymize users — `AddKlassdAuthWebhooks()` |
+| `Klassd.Auth.Dashboard` | Drop-in Blazor (Interactive Server) user-admin dashboard — `AddKlassdAuthDashboard()` |
 | `Klassd.Auth.OpenIdConnect` | OIDC external login + **Microsoft Entra ID** (`AddEntraId`) + Google (`AddGoogle`) |
 | `Klassd.Auth.OAuth` | OAuth 2.0 (non-OIDC) providers — GitHub, **Facebook, Instagram, TikTok** |
 | `Klassd.Auth.Data.Sqlite` | SQLite adapter (raw `Microsoft.Data.Sqlite`, JSON-in-TEXT) |
@@ -113,6 +115,84 @@ await accounts.UnlinkAsync(userId, methodId);                 // false if it's t
 Linking is explicit and tied to the signed-in session. Optionally, an unauthenticated social
 sign-in can auto-merge into an existing account — but **only** on a provider-**verified** matching
 email (`AutoLinkByVerifiedEmail`, off by default; unverified-email auto-link is a takeover vector).
+
+### Collecting an email from no-email providers
+
+Some providers never share an email — **Instagram and TikTok** don't expose one at all, and
+Facebook may be denied. Those accounts are provisioned with `PrimaryEmail == null` (it's nullable
+by design); collect and verify an address after sign-in:
+
+```
+POST /auth/me/email          (authenticated) [FromForm] email   → sends a verification link
+GET  /auth/me/email/confirm?token=…                             → sets it as the verified primary email
+```
+
+`start` rejects an address already owned by another user (`409`). The confirm link's token is the
+proof of ownership, so on confirm the address becomes the user's **verified** `PrimaryEmail` (and a
+usable passwordless identity). From code: `accounts.SetPrimaryEmailAsync(userId, email, verified)`
+(guards against an email owned by someone else) and `accounts.IsEmailAvailableAsync(...)`. Apps that
+require an email can gate access on `user.PrimaryEmail is null` and route to the collection page.
+
+### Self-service password reset (forgot password)
+
+```
+POST /auth/password/forgot { "identifier": "a@b.com" }   → 202 always (no account enumeration)
+POST /auth/password/reset  { "token": "…", "newPassword": "…" }   → 204 / 400
+```
+
+`forgot` emails a single-use link (`{PasswordResetUrlBase}?token=…`, ~1h TTL) to the resolved account;
+`reset` consumes the token, sets the password (adding an email/password method if the account had
+none), and **revokes the user's existing sessions**. Configure `PasswordResetUrlBase` on
+`MapKlassdAuth(o => …)`. (Distinct from the admin reset and the `AccountLifecycleService` below.)
+
+### Account lifecycle (disable / delete / anonymize)
+
+`AccountLifecycleService` performs the destructive ops with their cross-store cascade — used by the
+dashboard and the webhooks:
+
+```csharp
+await lifecycle.DisableAsync(userId);     // + revokes live sessions
+await lifecycle.EnableAsync(userId);
+await lifecycle.DeleteAsync(userId);      // hard delete: user + login methods + sessions + passkeys + metadata
+await lifecycle.AnonymizeAsync(userId);   // GDPR erasure: strip PII/credentials, KEEP the id row
+```
+
+### Admin dashboard (`Klassd.Auth.Dashboard`)
+
+A drop-in Blazor (Interactive Server) UI to maintain users — list/search, create, enable/disable,
+set password, edit roles, manage linked login methods, and delete/anonymize (typed confirm).
+
+```csharp
+auth.AddKlassdAuthDashboard();                       // after AddKlassdAuth(...) + a storage adapter
+…
+app.UseAntiforgery();
+app.MapStaticAssets();
+app.MapKlassdAuthDashboard(authorizationPolicy: "Admin");   // UI at /auth/dashboard
+```
+
+The host must enable Blazor Server and — since its only components come from this RCL — set
+`<RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>` in its csproj (else `_framework/blazor.web.js`
+404s). See `Klassd.Auth.Sample` for a complete host.
+
+### Webhooks (`Klassd.Auth.Webhooks`) — automate customer-service requests
+
+Lets an external system (e.g. a CS tool) act on accounts via an **HMAC-signed** request:
+
+```csharp
+auth.AddKlassdAuthWebhooks(o => o.SigningSecrets.Add(builder.Configuration["Auth:Webhooks:Secret"]!));
+app.MapKlassdAuthWebhooks();   // POST /auth/webhooks/users
+```
+
+```
+POST /auth/webhooks/users
+  X-Klassd-Timestamp: <unix seconds>
+  X-Klassd-Signature: sha256=<hex HMAC-SHA256 of "{timestamp}.{body}">
+  { "action": "disable"|"enable"|"delete"|"anonymize", "userId"|"email": "…", "reason": "…" }
+```
+
+Verification mirrors the Klassd CMS outbound signing scheme and adds a timestamp tolerance (default
+300s) to reject replays. Forged/stale/unsigned requests get `401`; unknown users `404`. Each applied
+action is logged via `ILogger` for an audit trail.
 
 ### Token signing
 

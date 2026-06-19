@@ -35,15 +35,19 @@ public static class AuthBuilderExtensions
         services.TryAddSingleton<ISmsSender, ConsoleSmsSender>();
         // In-memory defaults; a Data.* adapter overrides these with persistent stores.
         services.TryAddSingleton<IEmailVerificationTokenStore, InMemoryEmailVerificationTokenStore>();
+        services.TryAddSingleton<IPasswordResetTokenStore, InMemoryPasswordResetTokenStore>();
         services.TryAddSingleton<IPasswordlessCodeStore, InMemoryPasswordlessCodeStore>();
         services.TryAddSingleton<IPasskeyCredentialStore, InMemoryPasskeyCredentialStore>();
 
         services.AddScoped<SessionService>();
         services.AddScoped<EmailPasswordService>();
         services.AddScoped<EmailVerificationService>();
+        services.TryAddSingleton<Modules.Password.PasswordResetOptions>();
+        services.AddScoped<Modules.Password.PasswordResetService>();
         services.AddScoped<UserMetadataService>();
         services.AddScoped<ThirdPartyService>();
         services.AddScoped<UserAccountService>();
+        services.AddScoped<AccountLifecycleService>();
         services.AddScoped<RolesService>();
 
         // Create the storage schema/indexes at startup so the host doesn't have to.

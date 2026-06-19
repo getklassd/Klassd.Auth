@@ -26,6 +26,9 @@ public interface IUserStore
 
     /// <summary>Removes a login method by id. Callers must guard against removing a user's last method.</summary>
     Task RemoveLoginMethodAsync(string methodId, CancellationToken ct = default);
+
+    /// <summary>Hard-deletes a user and all of their login methods. Callers cascade other per-user data.</summary>
+    Task DeleteUserAsync(string userId, CancellationToken ct = default);
 }
 
 public interface ISessionStore
@@ -34,6 +37,12 @@ public interface ISessionStore
     Task AddAsync(SessionEntity session, CancellationToken ct = default);
     Task UpdateAsync(SessionEntity session, CancellationToken ct = default);
     Task RevokeAsync(string handle, CancellationToken ct = default);
+
+    /// <summary>Revokes every session for a user (e.g. on disable) so live tokens stop refreshing.</summary>
+    Task RevokeAllForUserAsync(string userId, CancellationToken ct = default);
+
+    /// <summary>Deletes every session row for a user (e.g. on hard delete / anonymize).</summary>
+    Task DeleteAllForUserAsync(string userId, CancellationToken ct = default);
 }
 
 /// <summary>Free-form per-user JSON metadata store.</summary>

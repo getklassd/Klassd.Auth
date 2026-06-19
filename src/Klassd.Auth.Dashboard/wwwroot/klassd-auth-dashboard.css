@@ -1,0 +1,66 @@
+/* Self-contained styles for the Klassd.Auth dashboard (no dependency on the CMS stylesheet).
+   Coral accent on a near-mono graphite/white shell, matching the Klassd brand. */
+:root {
+    --kad-accent: #ff5a4d;
+    --kad-ink: #1c1f23;
+    --kad-muted: #6b7178;
+    --kad-line: #e6e8eb;
+    --kad-bg: #f6f7f8;
+    --kad-surface: #fff;
+    --kad-danger: #d23c2e;
+    --kad-warn: #b6792a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: var(--kad-ink); background: var(--kad-bg); }
+
+.kad-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.kad-top { display: flex; align-items: baseline; gap: 14px; padding: 14px 22px; background: var(--kad-ink); color: #fff; }
+.kad-brand { font-weight: 700; letter-spacing: -0.02em; }
+.kad-dot { color: var(--kad-accent); }
+.kad-top-title { color: #b9bdc2; font-size: 0.9rem; }
+.kad-body { flex: 1; }
+
+.kad-layout { display: grid; grid-template-columns: 300px 1fr; gap: 0; height: calc(100vh - 50px); }
+.kad-list { border-right: 1px solid var(--kad-line); background: var(--kad-surface); overflow-y: auto; }
+.kad-list-head { display: flex; gap: 8px; padding: 12px; border-bottom: 1px solid var(--kad-line); position: sticky; top: 0; background: var(--kad-surface); }
+.kad-search { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid var(--kad-line); border-radius: 7px; }
+.kad-users { list-style: none; margin: 0; padding: 6px; }
+.kad-users button { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; background: none; border-radius: 8px; cursor: pointer; text-align: left; color: inherit; }
+.kad-users button:hover { background: var(--kad-bg); }
+.kad-users button.kad-active { background: #fff0ee; box-shadow: inset 2px 0 0 var(--kad-accent); }
+.kad-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--kad-accent); color: #fff; display: grid; place-items: center; font-size: 0.8rem; font-weight: 700; flex: none; }
+.kad-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kad-name.kad-disabled { color: var(--kad-muted); text-decoration: line-through; }
+
+.kad-detail { padding: 26px 30px; overflow-y: auto; max-width: 760px; }
+.kad-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kad-detail h1 { font-size: 1.4rem; margin: 0 0 4px; }
+.kad-detail h2 { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--kad-muted); margin: 26px 0 8px; }
+.kad-field { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.kad-field label { width: 90px; color: var(--kad-muted); font-size: 0.85rem; flex: none; }
+.kad-field input { flex: 1; padding: 7px 10px; border: 1px solid var(--kad-line); border-radius: 7px; }
+.kad-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85rem; }
+.kad-hint, .kad-empty { color: var(--kad-muted); }
+.kad-empty { padding: 40px; text-align: center; }
+
+.kad-methods { list-style: none; margin: 0; padding: 0; }
+.kad-methods li { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--kad-line); }
+.kad-method-id { flex: 1; font-family: ui-monospace, monospace; font-size: 0.8rem; color: var(--kad-muted); }
+
+.kad-badge { font-size: 0.72rem; padding: 2px 7px; border-radius: 999px; background: #eef0f2; color: var(--kad-ink); }
+.kad-badge-muted { background: #eceef0; color: var(--kad-muted); margin-left: auto; }
+
+.kad-btn { padding: 7px 13px; border: 1px solid var(--kad-line); background: var(--kad-surface); border-radius: 8px; cursor: pointer; font-size: 0.88rem; }
+.kad-btn:hover { border-color: var(--kad-muted); }
+.kad-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.kad-btn-sm { padding: 4px 9px; font-size: 0.8rem; }
+.kad-btn-primary { background: var(--kad-accent); border-color: var(--kad-accent); color: #fff; }
+.kad-btn-danger { background: var(--kad-danger); border-color: var(--kad-danger); color: #fff; }
+.kad-btn-warn { color: var(--kad-warn); border-color: var(--kad-warn); }
+.kad-actions { display: flex; gap: 10px; margin-top: 12px; }
+
+.kad-danger-h { color: var(--kad-danger); }
+.kad-danger { border: 1px solid #f3d2cd; background: #fdf3f1; border-radius: 10px; padding: 14px 16px; }
+.kad-danger input { margin: 8px 0; padding: 7px 10px; border: 1px solid var(--kad-line); border-radius: 7px; width: 260px; max-width: 100%; }
+.kad-status { color: #1f7a4d; margin-top: 14px; }
+.kad-error { color: var(--kad-danger); }

@@ -70,6 +70,9 @@ public sealed class MongoUserStore(MongoContext ctx) : IUserStore
             Builders<UserDoc>.Filter.ElemMatch(u => u.LoginMethods, m => m.Id == methodId),
             Builders<UserDoc>.Update.PullFilter(u => u.LoginMethods, m => m.Id == methodId),
             cancellationToken: ct);
+
+    public Task DeleteUserAsync(string userId, CancellationToken ct = default) =>
+        ctx.Users.DeleteOneAsync(u => u.Id == userId, ct);   // login methods are embedded → removed with the doc
 }
 
 public sealed class MongoSessionStore(MongoContext ctx) : ISessionStore
@@ -88,6 +91,15 @@ public sealed class MongoSessionStore(MongoContext ctx) : ISessionStore
             s => s.Handle == handle,
             Builders<SessionDoc>.Update.Set(s => s.Revoked, true),
             cancellationToken: ct);
+
+    public Task RevokeAllForUserAsync(string userId, CancellationToken ct = default) =>
+        ctx.Sessions.UpdateManyAsync(
+            s => s.UserId == userId,
+            Builders<SessionDoc>.Update.Set(s => s.Revoked, true),
+            cancellationToken: ct);
+
+    public Task DeleteAllForUserAsync(string userId, CancellationToken ct = default) =>
+        ctx.Sessions.DeleteManyAsync(s => s.UserId == userId, ct);
 }
 
 public sealed class MongoUserMetadataStore(MongoContext ctx) : IUserMetadataStore

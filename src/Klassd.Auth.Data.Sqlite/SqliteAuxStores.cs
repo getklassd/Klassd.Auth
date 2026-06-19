@@ -79,6 +79,42 @@ public sealed class SqliteEmailVerificationTokenStore(SqliteContext ctx) : IEmai
     }
 }
 
+public sealed class SqlitePasswordResetTokenStore(SqliteContext ctx) : IPasswordResetTokenStore
+{
+    public async Task StoreAsync(string tokenHash, string userId, DateTimeOffset expires, CancellationToken ct = default)
+    {
+        await using var conn = ctx.Open();
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "INSERT INTO password_reset_tokens (token_hash, user_id, expires_at) VALUES ($h, $uid, $exp)";
+        cmd.Parameters.AddWithValue("$h", tokenHash);
+        cmd.Parameters.AddWithValue("$uid", userId);
+        cmd.Parameters.AddWithValue("$exp", expires.ToString("o", CultureInfo.InvariantCulture));
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<PasswordResetToken?> ConsumeAsync(string tokenHash, CancellationToken ct = default)
+    {
+        await using var conn = ctx.Open();
+        await using var tx = await conn.BeginTransactionAsync(ct);
+
+        PasswordResetToken? token = null;
+        var sel = conn.CreateCommand();
+        sel.CommandText = "SELECT user_id, expires_at FROM password_reset_tokens WHERE token_hash = $h";
+        sel.Parameters.AddWithValue("$h", tokenHash);
+        await using (var r = await sel.ExecuteReaderAsync(ct))
+            if (await r.ReadAsync(ct))
+                token = new PasswordResetToken(r.GetString(0), DateTimeOffset.Parse(r.GetString(1), CultureInfo.InvariantCulture));
+        if (token is null) return null;
+
+        var del = conn.CreateCommand();
+        del.CommandText = "DELETE FROM password_reset_tokens WHERE token_hash = $h";
+        del.Parameters.AddWithValue("$h", tokenHash);
+        await del.ExecuteNonQueryAsync(ct);
+        await tx.CommitAsync(ct);
+        return token;
+    }
+}
+
 public sealed class SqlitePasswordlessCodeStore(SqliteContext ctx) : IPasswordlessCodeStore
 {
     public async Task StoreAsync(string identifier, PasswordlessChannel channel, string codeHash, DateTimeOffset expires, CancellationToken ct = default)
@@ -205,6 +241,15 @@ public sealed class SqlitePasskeyCredentialStore(SqliteContext ctx) : IPasskeyCr
         cmd.Parameters.AddWithValue("$sc", (long)newSignCount);
         cmd.Parameters.AddWithValue("$lu", usedAt.ToString("o", CultureInfo.InvariantCulture));
         cmd.Parameters.AddWithValue("$c", credentialId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task DeleteByUserIdAsync(string userId, CancellationToken ct = default)
+    {
+        await using var conn = ctx.Open();
+        var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM passkey_credentials WHERE user_id = $uid";
+        cmd.Parameters.AddWithValue("$uid", userId);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 }
