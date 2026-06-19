@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Klassd.Auth.Core.Modules.EmailVerification;
 using Klassd.Auth.Core.Modules.Users;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -17,6 +18,14 @@ public static class CookieAuthEndpoints
     {
         var options = app.ServiceProvider.GetRequiredService<KlassdAuthCookieOptions>();
         var g = app.MapGroup(options.BasePath);
+
+        // The signed-in-only endpoints (account linking, /me) authorize against the cookie scheme
+        // EXPLICITLY rather than the app's default policy/scheme. This keeps them working when the cookie
+        // is NOT the app default — e.g. mounted inside a host that has its own default auth scheme (a
+        // storefront's customer token), where the default policy would authenticate the wrong scheme.
+        var cookieAuth = new AuthorizationPolicyBuilder(KlassdAuthSchemes.Cookie)
+            .RequireAuthenticatedUser()
+            .Build();
 
         // ---- Local username/email + password login (form post) ---------------------------
         g.MapPost("/login", async (
@@ -86,7 +95,7 @@ public static class CookieAuthEndpoints
                 Items = { ["provider"] = scheme, ["returnUrl"] = SafeReturn(returnUrl) },
             };
             return Results.Challenge(props, [scheme]);
-        }).RequireAuthorization();
+        }).RequireAuthorization(cookieAuth);
 
         // Attach the external identity to the CURRENT user (never steal one owned elsewhere).
         g.MapGet("/link-callback", async (HttpContext http, UserAccountService accounts) =>
@@ -113,7 +122,7 @@ public static class CookieAuthEndpoints
                 _ => "error",
             };
             return Results.Redirect(AppendQuery(Local(http, SafeReturn(returnUrl)), "linked", status));
-        }).RequireAuthorization();
+        }).RequireAuthorization(cookieAuth);
 
         g.MapPost("/unlink", async ([FromForm] string methodId, HttpContext http, UserAccountService accounts) =>
         {
@@ -121,7 +130,7 @@ public static class CookieAuthEndpoints
             return await accounts.UnlinkAsync(userId, methodId)
                 ? Results.NoContent()
                 : Results.BadRequest(new { error = "CANNOT_UNLINK_LAST_METHOD" });
-        }).RequireAuthorization().DisableAntiforgery();
+        }).RequireAuthorization(cookieAuth).DisableAntiforgery();
 
         // Let a social-/passwordless-only user gain a password.
         g.MapPost("/link/password", async ([FromForm] string password, HttpContext http, UserAccountService accounts) =>
@@ -130,7 +139,7 @@ public static class CookieAuthEndpoints
             return await accounts.AddPasswordAsync(userId, password)
                 ? Results.NoContent()
                 : Results.BadRequest(new { error = "PASSWORD_ALREADY_SET" });
-        }).RequireAuthorization().DisableAntiforgery();
+        }).RequireAuthorization(cookieAuth).DisableAntiforgery();
 
         // List the caller's own login methods (ids are needed to unlink).
         g.MapGet("/me/methods", async (HttpContext http, UserAccountService accounts) =>
@@ -144,7 +153,7 @@ public static class CookieAuthEndpoints
                     id = m.Id, kind = m.Kind.ToString(), providerId = m.ProviderId,
                     email = m.Email, phone = m.Phone, emailVerified = m.EmailVerified,
                 }));
-        }).RequireAuthorization();
+        }).RequireAuthorization(cookieAuth);
 
         // ---- Collect & verify a primary email (for providers that don't share one) --------
         // Start: the signed-in user submits an email; we send a verification link to prove ownership.
@@ -159,7 +168,7 @@ public static class CookieAuthEndpoints
             var confirmUrl = $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}{options.BasePath}/me/email/confirm";
             await verification.SendVerificationAsync(userId, email, confirmUrl);
             return Results.Accepted();
-        }).RequireAuthorization().DisableAntiforgery();
+        }).RequireAuthorization(cookieAuth).DisableAntiforgery();
 
         // Confirm: the link's token proves ownership → set it as the (verified) primary email.
         // No auth required — the token itself carries the user + email and is the capability.

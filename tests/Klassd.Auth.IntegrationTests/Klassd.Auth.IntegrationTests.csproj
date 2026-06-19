@@ -7,7 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- For CookieEndpointSchemeBindingTests (in-process TestServer). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="TUnit" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" />
     <PackageReference Include="Testcontainers.PostgreSql" />
     <PackageReference Include="Testcontainers.MongoDb" />
   </ItemGroup>
@@ -15,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Klassd.Auth.Abstractions\Klassd.Auth.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+    <ProjectReference Include="..\..\src\Klassd.Auth.AspNetCore.Cookies\Klassd.Auth.AspNetCore.Cookies.csproj" />
     <ProjectReference Include="..\..\src\Klassd.Auth.Data.Sqlite\Klassd.Auth.Data.Sqlite.csproj" />
     <ProjectReference Include="..\..\src\Klassd.Auth.Data.Postgres\Klassd.Auth.Data.Postgres.csproj" />
     <ProjectReference Include="..\..\src\Klassd.Auth.Data.MongoDb\Klassd.Auth.Data.MongoDb.csproj" />
