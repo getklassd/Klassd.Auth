@@ -28,26 +28,26 @@ public static class CookieAuthEndpoints
             var user = await accounts.FindByUsernameAsync(identifier)
                        ?? await accounts.FindByEmailAsync(identifier);
             if (user is null || user.Disabled || !accounts.VerifyPassword(user, password))
-                return Results.Redirect($"{options.LoginPath}?error=invalid");
+                return Results.Redirect(Local(http, $"{options.LoginPath}?error=invalid"));
 
             var principal = await ClaimsPrincipalFactory.BuildAsync(user, roles);
             await http.SignInAsync(KlassdAuthSchemes.Cookie, principal);
-            return Results.Redirect(SafeReturn(returnUrl));
+            return Results.Redirect(Local(http, SafeReturn(returnUrl)));
         }).DisableAntiforgery();
 
         // ---- Logout -----------------------------------------------------------------------
         g.MapPost("/logout", async (HttpContext http) =>
         {
             await http.SignOutAsync(KlassdAuthSchemes.Cookie);
-            return Results.Redirect("/");
+            return Results.Redirect(Local(http, "/"));
         }).DisableAntiforgery();
 
         // ---- External SSO: challenge the provider -----------------------------------------
-        g.MapGet("/external/{scheme}", (string scheme, string? returnUrl) =>
+        g.MapGet("/external/{scheme}", (string scheme, string? returnUrl, HttpContext http) =>
         {
             var props = new AuthenticationProperties
             {
-                RedirectUri = $"{options.BasePath}/external-callback",
+                RedirectUri = Local(http, $"{options.BasePath}/external-callback"),
                 Items = { ["provider"] = scheme, ["returnUrl"] = SafeReturn(returnUrl) },
             };
             return Results.Challenge(props, [scheme]);
@@ -58,7 +58,7 @@ public static class CookieAuthEndpoints
         {
             var result = await http.AuthenticateAsync(KlassdAuthSchemes.External);
             if (!result.Succeeded || result.Principal is null)
-                return Results.Redirect($"{options.LoginPath}?error=external");
+                return Results.Redirect(Local(http, $"{options.LoginPath}?error=external"));
 
             var items = result.Properties?.Items;
             var provider = items is not null && items.TryGetValue("provider", out var p) ? p ?? "external" : "external";
@@ -68,21 +68,21 @@ public static class CookieAuthEndpoints
             var user = await accounts.ProvisionExternalAsync(
                 provider, info, options.AutoProvisionExternalUsers, options.AutoLinkByVerifiedEmail);
             if (user is null || user.Disabled)
-                return Results.Redirect($"{options.LoginPath}?error=not_provisioned");
+                return Results.Redirect(Local(http, $"{options.LoginPath}?error=not_provisioned"));
 
             var principal = await ClaimsPrincipalFactory.BuildAsync(user, roles);
             await http.SignInAsync(KlassdAuthSchemes.Cookie, principal);
             await http.SignOutAsync(KlassdAuthSchemes.External);
-            return Results.Redirect(SafeReturn(returnUrl));
+            return Results.Redirect(Local(http, SafeReturn(returnUrl)));
         });
 
         // ---- Account linking (a signed-in user attaches another method) -------------------
         // Challenge the provider, returning to /link-callback (vs /external-callback for sign-in).
-        g.MapGet("/link/{scheme}", (string scheme, string? returnUrl) =>
+        g.MapGet("/link/{scheme}", (string scheme, string? returnUrl, HttpContext http) =>
         {
             var props = new AuthenticationProperties
             {
-                RedirectUri = $"{options.BasePath}/link-callback",
+                RedirectUri = Local(http, $"{options.BasePath}/link-callback"),
                 Items = { ["provider"] = scheme, ["returnUrl"] = SafeReturn(returnUrl) },
             };
             return Results.Challenge(props, [scheme]);
@@ -92,11 +92,11 @@ public static class CookieAuthEndpoints
         g.MapGet("/link-callback", async (HttpContext http, UserAccountService accounts) =>
         {
             if (http.User.FindFirstValue(ClaimTypes.NameIdentifier) is not { } userId)
-                return Results.Redirect($"{options.LoginPath}?error=link");
+                return Results.Redirect(Local(http, $"{options.LoginPath}?error=link"));
 
             var result = await http.AuthenticateAsync(KlassdAuthSchemes.External);
             if (!result.Succeeded || result.Principal is null)
-                return Results.Redirect(AppendQuery("/", "linked", "error"));
+                return Results.Redirect(AppendQuery(Local(http, "/"), "linked", "error"));
 
             var items = result.Properties?.Items;
             var provider = items is not null && items.TryGetValue("provider", out var p) ? p ?? "external" : "external";
@@ -112,7 +112,7 @@ public static class CookieAuthEndpoints
                 LinkOutcome.ConflictOwnedByAnotherUser => "conflict",
                 _ => "error",
             };
-            return Results.Redirect(AppendQuery(SafeReturn(returnUrl), "linked", status));
+            return Results.Redirect(AppendQuery(Local(http, SafeReturn(returnUrl)), "linked", status));
         }).RequireAuthorization();
 
         g.MapPost("/unlink", async ([FromForm] string methodId, HttpContext http, UserAccountService accounts) =>
@@ -156,7 +156,7 @@ public static class CookieAuthEndpoints
             if (!await accounts.IsEmailAvailableAsync(userId, email)) return Results.Conflict(new { error = "EMAIL_IN_USE" });
 
             // SendVerificationAsync appends "?token=…", so the base URL must carry no query string.
-            var confirmUrl = $"{http.Request.Scheme}://{http.Request.Host}{options.BasePath}/me/email/confirm";
+            var confirmUrl = $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}{options.BasePath}/me/email/confirm";
             await verification.SendVerificationAsync(userId, email, confirmUrl);
             return Results.Accepted();
         }).RequireAuthorization().DisableAntiforgery();
@@ -164,10 +164,10 @@ public static class CookieAuthEndpoints
         // Confirm: the link's token proves ownership → set it as the (verified) primary email.
         // No auth required — the token itself carries the user + email and is the capability.
         g.MapGet("/me/email/confirm", async (
-            string token, UserAccountService accounts, EmailVerificationService verification) =>
+            string token, HttpContext http, UserAccountService accounts, EmailVerificationService verification) =>
         {
             var record = await verification.ConsumeTokenAsync(token);
-            if (record is null) return Results.Redirect(AppendQuery("/", "email", "error"));
+            if (record is null) return Results.Redirect(AppendQuery(Local(http, "/"), "email", "error"));
 
             var status = await accounts.SetPrimaryEmailAsync(record.UserId, record.Email, verified: true) switch
             {
@@ -175,11 +175,15 @@ public static class CookieAuthEndpoints
                 EmailUpdateOutcome.EmailInUse => "inuse",
                 _ => "error",
             };
-            return Results.Redirect(AppendQuery("/", "email", status));
+            return Results.Redirect(AppendQuery(Local(http, "/"), "email", status));
         });
 
         return app;
     }
+
+    // Prefix a local path with the request's PathBase so redirects stay correct when the app is
+    // hosted under a sub-path (UsePathBase). PathBase is empty for root-hosted apps ⇒ unchanged.
+    private static string Local(HttpContext http, string localPath) => $"{http.Request.PathBase}{localPath}";
 
     private static string AppendQuery(string url, string key, string value) =>
         $"{url}{(url.Contains('?') ? '&' : '?')}{key}={value}";

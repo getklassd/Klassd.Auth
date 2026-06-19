@@ -163,16 +163,19 @@ A drop-in Blazor (Interactive Server) UI to maintain users — list/search, crea
 set password, edit roles, manage linked login methods, and delete/anonymize (typed confirm).
 
 ```csharp
-auth.AddKlassdAuthDashboard();                       // after AddKlassdAuth(...) + a storage adapter
+auth.AddKlassdAuthDashboard();   // after AddKlassdAuth(...) + a storage adapter (registers Blazor Server)
 …
-app.UseAntiforgery();
-app.MapStaticAssets();
-app.MapKlassdAuthDashboard(authorizationPolicy: "Admin");   // UI at /auth/dashboard
+// Mounts the UI under a configurable path (default "/auth/dashboard") and ALWAYS requires login —
+// anonymous visitors are redirected to the cookie login path. Pass a policy to also gate by role.
+app.MapKlassdAuthDashboard(authorizationPolicy: "Admin");
+app.MapKlassdAuthDashboard("/admin/users", "Admin");   // …or mount it anywhere
 ```
 
-The host must enable Blazor Server and — since its only components come from this RCL — set
+The mount is a **self-contained pipeline branch** — it owns its routing, authentication, antiforgery
+and static assets, so the host doesn't add those for the dashboard. The host must still set
 `<RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>` in its csproj (else `_framework/blazor.web.js`
-404s). See `Klassd.Auth.Sample` for a complete host.
+404s). Browse the authenticated UI at the trailing-slash URL (`…/auth/dashboard/`). See
+`Klassd.Auth.Sample` for a complete host.
 
 ### Webhooks (`Klassd.Auth.Webhooks`) — automate customer-service requests
 

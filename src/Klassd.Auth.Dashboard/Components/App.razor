@@ -1,10 +1,12 @@
-@* Root document for a standalone Klassd.Auth dashboard host (rendered by MapRazorComponents<App>). *@
+@* Root document for the Klassd.Auth dashboard, mounted under the configured base path. *@
+@inject DashboardOptions Options
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <base href="/" />
+    @* Trailing slash required; the page @page "/" + relative asset links resolve under this base. *@
+    <base href="@($"{Options.BasePath}/")" />
     <link rel="stylesheet" href="_content/Klassd.Auth.Dashboard/klassd-auth-dashboard.css" />
     <title>Klassd.Auth — Users</title>
     <HeadOutlet @rendermode="InteractiveServer" />

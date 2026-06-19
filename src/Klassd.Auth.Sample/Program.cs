@@ -73,15 +73,15 @@ auth.AddKlassdAuthWebhooks(o =>
 var app = builder.Build();
 
 app.UseStaticFiles();         // serves wwwroot/ (the passkey/passwordless browser test page)
-app.MapStaticAssets();        // RCL static assets (the dashboard's stylesheet under _content/…)
 app.MapKlassdAuth();          // JSON/JWT API (signup/signin/refresh/email/mfa/metadata/jwks/password)
 app.UseKlassdAuthCookies();   // cookie login + external SSO challenge/callback
-app.UseAntiforgery();         // required by the Blazor dashboard
 app.MapKlassdAuthAdmin(authorizationPolicy: "Admin");   // admin user management
 app.MapKlassdPasswordless();  // JSON passwordless API (start/verify → session tokens)
 app.MapKlassdPasskeys();      // JSON passkey ceremonies (register/login → session tokens)
 app.MapKlassdAuthWebhooks();  // POST /auth/webhooks/users (HMAC-signed)
-app.MapKlassdAuthDashboard(authorizationPolicy: "Admin");   // Blazor user-admin UI at /auth/dashboard
+// Blazor user-admin UI mounted at /auth/dashboard (override the path: MapKlassdAuthDashboard("/admin/users", "Admin")).
+// Self-contained branch: requires login, owns its static assets + antiforgery.
+app.MapKlassdAuthDashboard(authorizationPolicy: "Admin");
 
 // Example protected endpoint reading the cookie identity.
 app.MapGet("/me", (ClaimsPrincipal user) =>

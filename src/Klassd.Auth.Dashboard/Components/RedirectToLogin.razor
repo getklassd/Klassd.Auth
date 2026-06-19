@@ -1,0 +1,13 @@
+@inject NavigationManager Nav
+@inject DashboardOptions Options
+
+@code {
+    // Rendered by AuthorizeRouteView when the visitor isn't authenticated. The endpoint's
+    // RequireAuthorization already 302s anonymous GETs to the cookie LoginPath; this covers
+    // in-circuit transitions to a not-authorized state.
+    protected override void OnInitialized()
+    {
+        var returnUrl = Uri.EscapeDataString(new Uri(Nav.Uri).PathAndQuery);
+        Nav.NavigateTo($"{Options.LoginPath}?returnUrl={returnUrl}", forceLoad: true);
+    }
+}
