@@ -63,6 +63,7 @@ That's the whole host. The endpoints are shipped by the library — you don't ha
 | `GET  /auth/users/{id}/metadata` | Read user metadata JSON |
 | `PATCH /auth/users/{id}/metadata` | Shallow-merge user metadata (null removes a key) |
 | `GET  /auth/jwks.json` | Public signing keys (populated under RS256; empty for HS256) |
+| `GET  /auth/.well-known/openid-configuration` | OIDC discovery doc (issuer + `jwks_uri`) for JWT-bearer auto-discovery |
 
 ### Admin user-management API (`MapKlassdAuthAdmin`)
 
@@ -311,6 +312,23 @@ Access tokens are HS256 by default (shared secret). For asymmetric signing:
 Either way the public key(s) are published at `/auth/jwks.json` so resource servers validate
 tokens without a shared secret. Email-verification tokens are likewise persisted (hashed, with a
 TTL, single-use) by the storage adapter, so they survive restarts and scale across nodes.
+
+An **OpenID Connect discovery document** is served at `/auth/.well-known/openid-configuration`
+(issuer + absolute `jwks_uri` + signing alg), so a resource server can auto-discover keys instead of
+hard-coding the JWKS URL — point JWT-bearer middleware at the auth base URL as its `Authority`:
+
+```csharp
+builder.Services.AddAuthentication().AddJwtBearer(o =>
+{
+    o.Authority = "https://your-host/auth";   // fetches /auth/.well-known/openid-configuration
+    o.TokenValidationParameters.ValidAudience = "klassd.auth";   // SessionConfig.Audience
+});
+```
+
+JWKS-based validation requires RS256 (`UseRsaSigning` / `UseRotatingRsaSigning`); the doc reports
+`HS256` under the default shared secret, which has no public keys to discover. The `issuer` reflects
+`SessionConfig.Issuer` (default `klassd.auth`) — set it to your auth URL if your validator requires a
+URL issuer.
 
 ### Custom access-token claims
 

@@ -123,6 +123,25 @@ public static class KlassdAuthEndpoints
             }),
         }));
 
+        // ---- OpenID Connect discovery -----------------------------------------------------
+        // So resource servers can point JWT-bearer middleware at an Authority and auto-discover the
+        // issuer + jwks_uri instead of hard-coding them. URLs are absolute and honor PathBase, so it
+        // works when the app is mounted under a sub-path. (JWKS validation needs RS256 — see UseRsaSigning.)
+        g.MapGet("/.well-known/openid-configuration", (HttpContext http, SessionConfig cfg, ITokenSigningKey signing) =>
+        {
+            var baseUrl = $"{http.Request.Scheme}://{http.Request.Host}{http.Request.PathBase}{opts.BasePath}";
+            return Results.Ok(new Dictionary<string, object?>
+            {
+                ["issuer"] = cfg.Issuer,
+                ["jwks_uri"] = $"{baseUrl}/jwks.json",
+                ["token_endpoint"] = $"{baseUrl}/signin",
+                ["id_token_signing_alg_values_supported"] = new[] { signing.SigningCredentials.Algorithm },
+                ["response_types_supported"] = new[] { "token" },
+                ["subject_types_supported"] = new[] { "public" },
+                ["grant_types_supported"] = new[] { "password", "refresh_token" },
+            });
+        });
+
         return app;
     }
 
