@@ -7,8 +7,18 @@ namespace Klassd.Auth.Core.Modules.Users;
 /// the engine behind the admin dashboard and the customer-service webhooks. Kept separate from
 /// <see cref="UserAccountService"/> so that service stays free of the session/metadata/passkey deps.
 /// </summary>
+/// <summary>Destructive account ops. Override via <c>auth.Override&lt;IAccountLifecycleService&gt;(…)</c>.</summary>
+public interface IAccountLifecycleService
+{
+    Task<bool> DisableAsync(string userId, CancellationToken ct = default);
+    Task<bool> EnableAsync(string userId, CancellationToken ct = default);
+    Task<bool> DeleteAsync(string userId, CancellationToken ct = default);
+    Task<bool> AnonymizeAsync(string userId, CancellationToken ct = default);
+}
+
 public sealed class AccountLifecycleService(
     IUserStore users, ISessionStore sessions, IUserMetadataStore metadata, IPasskeyCredentialStore passkeys)
+    : IAccountLifecycleService
 {
     /// <summary>Disables an account and revokes its live sessions (so existing tokens stop refreshing).</summary>
     public async Task<bool> DisableAsync(string userId, CancellationToken ct = default)
@@ -70,4 +80,13 @@ public sealed class AccountLifecycleService(
         await users.UpdateUserAsync(user, ct);
         return true;
     }
+}
+
+/// <summary>Forwarding base for overriding <see cref="IAccountLifecycleService"/>; override selectively, call <c>base</c> for the original.</summary>
+public abstract class AccountLifecycleServiceDecorator(IAccountLifecycleService inner) : IAccountLifecycleService
+{
+    public virtual Task<bool> DisableAsync(string userId, CancellationToken ct = default) => inner.DisableAsync(userId, ct);
+    public virtual Task<bool> EnableAsync(string userId, CancellationToken ct = default) => inner.EnableAsync(userId, ct);
+    public virtual Task<bool> DeleteAsync(string userId, CancellationToken ct = default) => inner.DeleteAsync(userId, ct);
+    public virtual Task<bool> AnonymizeAsync(string userId, CancellationToken ct = default) => inner.AnonymizeAsync(userId, ct);
 }

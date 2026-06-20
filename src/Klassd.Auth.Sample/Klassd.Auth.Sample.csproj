@@ -14,6 +14,9 @@
     <ProjectReference Include="..\Klassd.Auth.Sms.Twilio\Klassd.Auth.Sms.Twilio.csproj" />
     <ProjectReference Include="..\Klassd.Auth.Webhooks\Klassd.Auth.Webhooks.csproj" />
     <ProjectReference Include="..\Klassd.Auth.Dashboard\Klassd.Auth.Dashboard.csproj" />
+    <ProjectReference Include="..\Klassd.Auth.Migration\Klassd.Auth.Migration.csproj" />
+    <ProjectReference Include="..\Klassd.Auth.Migration.SuperTokens.Postgres\Klassd.Auth.Migration.SuperTokens.Postgres.csproj" />
+    <ProjectReference Include="..\Klassd.Auth.Migration.SuperTokens.MySql\Klassd.Auth.Migration.SuperTokens.MySql.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

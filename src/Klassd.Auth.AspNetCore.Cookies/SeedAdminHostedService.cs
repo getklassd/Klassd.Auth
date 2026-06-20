@@ -15,8 +15,8 @@ internal sealed class SeedAdminHostedService(IServiceProvider services, KlassdAu
         if (string.IsNullOrEmpty(options.SeedAdminPassword)) return;
 
         await using var scope = services.CreateAsyncScope();
-        var accounts = scope.ServiceProvider.GetRequiredService<UserAccountService>();
-        var roles = scope.ServiceProvider.GetRequiredService<RolesService>();
+        var accounts = scope.ServiceProvider.GetRequiredService<IUserAccountService>();
+        var roles = scope.ServiceProvider.GetRequiredService<IRolesService>();
 
         var existing =
             (options.SeedAdminUsername is { } un ? await accounts.FindByUsernameAsync(un, ct) : null) ??

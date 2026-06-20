@@ -9,7 +9,18 @@ namespace Klassd.Auth.Core.Modules.UserMetadata;
 /// key-namespaced sections — so each consumer (Klassd CMS, Klassd.Workflows, your app) can
 /// keep its own strongly-typed blob under its own key without colliding. Storage stays JSON.
 /// </summary>
-public sealed class UserMetadataService(IUserMetadataStore store)
+/// <summary>Per-user JSON metadata. Override via <c>auth.Override&lt;IUserMetadataService&gt;(…)</c>.</summary>
+public interface IUserMetadataService
+{
+    Task<T?> GetAsync<T>(string userId, string key, CancellationToken ct = default);
+    Task SetAsync<T>(string userId, string key, T value, CancellationToken ct = default);
+    Task RemoveAsync(string userId, string key, CancellationToken ct = default);
+    Task<JsonObject> GetAsync(string userId, CancellationToken ct = default);
+    Task<JsonObject> UpdateAsync(string userId, JsonObject patch, CancellationToken ct = default);
+    Task ClearAsync(string userId, CancellationToken ct = default);
+}
+
+public sealed class UserMetadataService(IUserMetadataStore store) : IUserMetadataService
 {
     // Web defaults => camelCase, case-insensitive: friendly for JSON interop.
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -64,4 +75,15 @@ public sealed class UserMetadataService(IUserMetadataStore store)
         var json = await store.GetAsync(userId, ct);
         return json is null ? new JsonObject() : (JsonNode.Parse(json) as JsonObject ?? new JsonObject());
     }
+}
+
+/// <summary>Forwarding base for overriding <see cref="IUserMetadataService"/>; override selectively, call <c>base</c> for the original.</summary>
+public abstract class UserMetadataServiceDecorator(IUserMetadataService inner) : IUserMetadataService
+{
+    public virtual Task<T?> GetAsync<T>(string userId, string key, CancellationToken ct = default) => inner.GetAsync<T>(userId, key, ct);
+    public virtual Task SetAsync<T>(string userId, string key, T value, CancellationToken ct = default) => inner.SetAsync(userId, key, value, ct);
+    public virtual Task RemoveAsync(string userId, string key, CancellationToken ct = default) => inner.RemoveAsync(userId, key, ct);
+    public virtual Task<JsonObject> GetAsync(string userId, CancellationToken ct = default) => inner.GetAsync(userId, ct);
+    public virtual Task<JsonObject> UpdateAsync(string userId, JsonObject patch, CancellationToken ct = default) => inner.UpdateAsync(userId, patch, ct);
+    public virtual Task ClearAsync(string userId, CancellationToken ct = default) => inner.ClearAsync(userId, ct);
 }

@@ -99,6 +99,14 @@ public sealed class PostgresSchemaInitializer(PostgresContext ctx) : IAuthStorag
             CREATE UNIQUE INDEX IF NOT EXISTS ux_pk_credential ON passkey_credentials(credential_id);
             CREATE INDEX IF NOT EXISTS ix_pk_user   ON passkey_credentials(user_id);
             CREATE INDEX IF NOT EXISTS ix_pk_handle ON passkey_credentials(user_handle);
+
+            CREATE TABLE IF NOT EXISTS migration_state (
+                migration_id    text PRIMARY KEY,
+                completed_at    timestamptz,
+                details         text,
+                lock_owner      text,
+                lock_expires_at timestamptz
+            );
             """;
         await cmd.ExecuteNonQueryAsync(ct);
     }

@@ -23,6 +23,13 @@ public sealed class PasswordResetOptions
 
 public sealed record PasswordResetResult(bool Success, string? Error = null);
 
+/// <summary>Self-service password reset. Override via <c>auth.Override&lt;IPasswordResetService&gt;(…)</c>.</summary>
+public interface IPasswordResetService
+{
+    Task RequestAsync(string identifier, string resetUrlBase, CancellationToken ct = default);
+    Task<PasswordResetResult> ResetAsync(string token, string newPassword, CancellationToken ct = default);
+}
+
 /// <summary>
 /// Self-service "forgot password": emails a single-use reset link, then sets a new password when the
 /// link's token is presented. Resetting revokes the user's existing sessions. No account enumeration —
@@ -34,7 +41,7 @@ public sealed class PasswordResetService(
     IEmailSender email,
     IPasswordResetTokenStore tokens,
     ISessionStore sessions,
-    PasswordResetOptions options)
+    PasswordResetOptions options) : IPasswordResetService
 {
     /// <summary>Sends a reset link to the account for <paramref name="identifier"/> (email or username), if any.</summary>
     public async Task RequestAsync(string identifier, string resetUrlBase, CancellationToken ct = default)
@@ -88,4 +95,14 @@ public sealed class PasswordResetService(
 
     private static string Hash(string input) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)));
+}
+
+/// <summary>Forwarding base for overriding <see cref="IPasswordResetService"/>; override selectively, call <c>base</c> for the original.</summary>
+public abstract class PasswordResetServiceDecorator(IPasswordResetService inner) : IPasswordResetService
+{
+    public virtual Task RequestAsync(string identifier, string resetUrlBase, CancellationToken ct = default) =>
+        inner.RequestAsync(identifier, resetUrlBase, ct);
+
+    public virtual Task<PasswordResetResult> ResetAsync(string token, string newPassword, CancellationToken ct = default) =>
+        inner.ResetAsync(token, newPassword, ct);
 }

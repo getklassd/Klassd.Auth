@@ -23,6 +23,7 @@ public sealed class MongoContext
         PasswordResetTokens = db.GetCollection<PasswordResetTokenDoc>("password_reset_tokens");
         PasswordlessCodes = db.GetCollection<PasswordlessCodeDoc>("passwordless_codes");
         PasskeyCredentials = db.GetCollection<PasskeyCredentialDoc>("passkey_credentials");
+        MigrationState = db.GetCollection<MigrationStateDoc>("migration_state");
     }
 
     public IMongoCollection<UserDoc> Users { get; }
@@ -33,6 +34,7 @@ public sealed class MongoContext
     public IMongoCollection<PasswordResetTokenDoc> PasswordResetTokens { get; }
     public IMongoCollection<PasswordlessCodeDoc> PasswordlessCodes { get; }
     public IMongoCollection<PasskeyCredentialDoc> PasskeyCredentials { get; }
+    public IMongoCollection<MigrationStateDoc> MigrationState { get; }
 }
 
 // Persistence documents. Kept separate from the Abstractions domain types so the storage
@@ -183,4 +185,14 @@ public sealed class PasskeyCredentialDoc
         SignCount = (long)c.SignCount, AaGuid = c.AaGuid, CredType = c.CredType, Nickname = c.Nickname,
         CreatedAt = c.CreatedAt, LastUsedAt = c.LastUsedAt,
     };
+}
+
+/// <summary>Migration ledger + lease lock. Lease expiry is epoch-ms (a number) for a robust $lt compare.</summary>
+public sealed class MigrationStateDoc
+{
+    public required string MigrationId { get; set; }   // mapped to _id
+    public DateTimeOffset? CompletedAt { get; set; }
+    public string? Details { get; set; }
+    public string? LockOwner { get; set; }
+    public long? LockExpiresUnixMs { get; set; }
 }

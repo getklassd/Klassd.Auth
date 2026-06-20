@@ -31,6 +31,7 @@ public static class TikTokAuthExtensions
             ab.AddOAuth<OAuthOptions, TikTokOAuthHandler>(scheme, o =>
             {
                 o.SignInScheme = KlassdAuthSchemes.External;
+                o.SaveTokens = true;   // surface provider tokens to IExternalSignInHook
                 o.ClientId = clientKey;          // sent as client_key by the handler
                 o.ClientSecret = clientSecret;
                 o.CallbackPath = $"/signin-{scheme}";

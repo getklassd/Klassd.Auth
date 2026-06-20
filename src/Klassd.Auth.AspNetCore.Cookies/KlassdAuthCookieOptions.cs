@@ -49,6 +49,18 @@ public sealed class KlassdAuthCookieOptions
     /// <summary>Maps an external provider's claims to a normalized user. Defaults to <see cref="DefaultExternalMapping"/>.</summary>
     public Func<ClaimsPrincipal, ExternalUserInfo> MapExternalUser { get; set; } = DefaultExternalMapping;
 
+    /// <summary>
+    /// Per-provider claim → user mappings (keyed by scheme), the equivalent of SuperTokens'
+    /// per-provider <c>GetUserInfo</c> override. When a scheme has an entry it wins over
+    /// <see cref="MapExternalUser"/>. Register via <c>auth.MapExternalProfile(scheme, …)</c>.
+    /// </summary>
+    public Dictionary<string, Func<ClaimsPrincipal, ExternalUserInfo>> ProviderProfileMappers { get; } =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Resolves the mapper for a scheme: the per-provider one if registered, else the default.</summary>
+    public ExternalUserInfo MapExternalUserFor(string scheme, ClaimsPrincipal principal) =>
+        ProviderProfileMappers.TryGetValue(scheme, out var mapper) ? mapper(principal) : MapExternalUser(principal);
+
     internal ExternalLoginRegistry ExternalLogins { get; } = new();
 
     /// <summary>
@@ -68,6 +80,13 @@ public sealed class KlassdAuthCookieOptions
         // OnCreatingTicket. Verified only when the claim is truthy — gates AutoLinkByVerifiedEmail.
         var emailVerified = email is not null
             && C("email_verified") is { } v && (v == "true" || v == "True");
-        return new ExternalUserInfo(externalId, username, email, emailVerified);
+
+        // Carry every provider claim through (last value wins per type) so an override of
+        // ProvisionExternalAsync can persist the ones it wants and re-emit them on the access token.
+        var claims = new Dictionary<string, string>();
+        foreach (var claim in p.Claims)
+            claims[claim.Type] = claim.Value;
+
+        return new ExternalUserInfo(externalId, username, email, emailVerified) { Claims = claims };
     }
 }

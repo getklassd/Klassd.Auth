@@ -49,7 +49,7 @@ public static class WebhookExtensions
 
         app.MapPost($"{basePath}/users", async (
             HttpContext http, WebhookOptions options,
-            UserAccountService accounts, AccountLifecycleService lifecycle, ILoggerFactory loggerFactory) =>
+            IUserAccountService accounts, IAccountLifecycleService lifecycle, ILoggerFactory loggerFactory) =>
         {
             var log = loggerFactory.CreateLogger("Klassd.Auth.Webhooks");
 

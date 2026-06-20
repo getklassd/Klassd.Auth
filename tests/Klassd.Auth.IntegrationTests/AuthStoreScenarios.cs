@@ -165,6 +165,64 @@ internal static class AuthStoreScenarios
         await Assert.That(await store.ConsumeAsync(hash)).IsNull();   // single-use
     }
 
+    // ---- Access-token payload merge (persists on the session, survives refresh) --------------
+    public static async Task AccessTokenPayloadMerge(IServiceProvider sp)
+    {
+        await using var scope = sp.CreateAsyncScope();
+        var sessions = scope.ServiceProvider.GetRequiredService<Klassd.Auth.Core.Sessions.ISessionService>();
+        var prefix = scope.ServiceProvider.GetRequiredService<Klassd.Auth.Core.Sessions.SessionConfig>().SessionDataClaimPrefix;
+
+        var tokens = await sessions.CreateAsync("user_" + Nid());
+        await sessions.MergeIntoAccessTokenPayloadAsync(tokens.Handle, new Dictionary<string, object?>
+        {
+            ["tenant"] = "acme",
+            ["roles"] = new[] { "admin", "editor" },
+        });
+
+        // Re-issue from the persisted session and confirm the payload survived the DB round-trip,
+        // including the JSON array (proves the store persists session_data on update).
+        var refreshed = await sessions.RefreshAsync(tokens.RefreshToken);
+        var principal = sessions.ValidateAccessToken(refreshed.AccessToken);
+
+        await Assert.That(principal.FindFirst($"{prefix}tenant")?.Value).IsEqualTo("acme");
+        var roles = principal.FindAll($"{prefix}roles").Select(c => c.Value).ToList();
+        await Assert.That(roles).Contains("admin");
+        await Assert.That(roles).Contains("editor");
+    }
+
+    // ---- Migration ledger + lease lock ------------------------------------------------------
+    public static async Task MigrationStateLifecycle(IServiceProvider sp)
+    {
+        await using var scope = sp.CreateAsyncScope();
+        var state = scope.ServiceProvider.GetRequiredService<IMigrationStateStore>();
+        var id = "mig_" + Nid();
+
+        await Assert.That(await state.IsCompletedAsync(id)).IsFalse();
+
+        // Exclusive lease: a second contender is refused while it's held.
+        var first = await state.TryAcquireLockAsync(id, TimeSpan.FromMinutes(5));
+        await Assert.That(first).IsNotNull();
+        await Assert.That(await state.TryAcquireLockAsync(id, TimeSpan.FromMinutes(5))).IsNull();
+        await Assert.That(await first!.RenewAsync(TimeSpan.FromMinutes(5))).IsTrue();
+        await first.DisposeAsync();
+
+        // Re-acquirable once released.
+        var again = await state.TryAcquireLockAsync(id, TimeSpan.FromMinutes(5));
+        await Assert.That(again).IsNotNull();
+        await again!.DisposeAsync();
+
+        // A crashed holder's expired lease is reclaimable.
+        var stale = await state.TryAcquireLockAsync(id, TimeSpan.FromSeconds(-1));
+        await Assert.That(stale).IsNotNull();
+        var taken = await state.TryAcquireLockAsync(id, TimeSpan.FromMinutes(5));
+        await Assert.That(taken).IsNotNull();
+        await taken!.DisposeAsync();
+
+        // Ledger persists completion.
+        await state.MarkCompletedAsync(id, "{\"created\":1}");
+        await Assert.That(await state.IsCompletedAsync(id)).IsTrue();
+    }
+
     // ---- Passkey credentials ----------------------------------------------------------------
     public static async Task PasskeyCredentialRoundTrip(IServiceProvider sp)
     {

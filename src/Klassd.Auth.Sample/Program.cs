@@ -11,6 +11,7 @@ using Klassd.Auth.Passkeys;
 using Klassd.Auth.Sms.Twilio;
 using Klassd.Auth.Dashboard;
 using Klassd.Auth.Webhooks;
+using Klassd.Auth.Migration.DependencyInjection;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,7 +22,8 @@ var auth = builder.Services
         SigningKey = builder.Configuration["Auth:SigningKey"] ?? "dev-only-change-me-please-32bytes-min!!",
     })
     .UseSqlite(builder.Configuration["Auth:Sqlite:ConnectionString"] ?? "Data Source=klassd-auth.db")
-    .UseRotatingRsaSigning();   // RS256 with persisted, auto-rotating keys; public JWKS at /auth/jwks.json
+    .UseRotatingRsaSigning()    // RS256 with persisted, auto-rotating keys; public JWKS at /auth/jwks.json
+    .AddAuthMigration();        // MigrationRunner + legacy bcrypt/argon2 password verification (for the `migrate-auth` verb)
 
 // Admin endpoints require the Administrator role.
 builder.Services.AddAuthorizationBuilder()
@@ -71,6 +73,15 @@ auth.AddKlassdAuthWebhooks(o =>
     o.SigningSecrets.Add(builder.Configuration["Auth:Webhooks:Secret"] ?? "dev-webhook-secret-change-me"));
 
 var app = builder.Build();
+
+// One-shot migration verb: `dotnet run -- migrate-auth …`. Runs the import to completion and exits,
+// WITHOUT starting the web server — this is what a Kubernetes Job / initContainer invokes. Because a
+// Job runs a single pod once, neither "re-runs on restart" nor "racing replicas" can happen.
+if (args.FirstOrDefault() == "migrate-auth")
+{
+    Environment.ExitCode = await MigrationCli.RunAsync(app.Services, args);
+    return;
+}
 
 app.UseStaticFiles();         // serves wwwroot/ (the passkey/passwordless browser test page)
 app.MapKlassdAuth();          // JSON/JWT API (signup/signin/refresh/email/mfa/metadata/jwks/password)

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Klassd.Auth.Migration.SuperTokens.MySql</PackageId>
+    <Description>Migrate users into Klassd.Auth by reading a SuperTokens core database directly over MySQL (MySqlConnector). Construct with a connection string and run via MigrationRunner.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MySqlConnector" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Klassd.Auth.Migration\Klassd.Auth.Migration.csproj" />
+  </ItemGroup>
+
+</Project>

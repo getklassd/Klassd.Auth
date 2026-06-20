@@ -24,8 +24,16 @@ public sealed class ConsoleEmailSender : IEmailSender
 /// Tokens are persisted hashed (via <see cref="IEmailVerificationTokenStore"/>) so only the holder
 /// of the raw token can redeem it, and they survive restarts when a persistent store is used.
 /// </summary>
+/// <summary>Email-verification tokens. Override via <c>auth.Override&lt;IEmailVerificationService&gt;(…)</c>.</summary>
+public interface IEmailVerificationService
+{
+    Task SendVerificationAsync(string userId, string toEmail, string verifyUrlBase, CancellationToken ct = default);
+    Task<EmailVerificationToken?> ConsumeTokenAsync(string token, CancellationToken ct = default);
+    Task<bool> VerifyAsync(string token, CancellationToken ct = default);
+}
+
 public sealed class EmailVerificationService(
-    IUserStore users, IEmailSender email, IEmailVerificationTokenStore tokens)
+    IUserStore users, IEmailSender email, IEmailVerificationTokenStore tokens) : IEmailVerificationService
 {
     public async Task SendVerificationAsync(string userId, string toEmail, string verifyUrlBase, CancellationToken ct = default)
     {
@@ -62,4 +70,16 @@ public sealed class EmailVerificationService(
 
     private static string Hash(string input) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input)));
+}
+
+/// <summary>Forwarding base for overriding <see cref="IEmailVerificationService"/>; override selectively, call <c>base</c> for the original.</summary>
+public abstract class EmailVerificationServiceDecorator(IEmailVerificationService inner) : IEmailVerificationService
+{
+    public virtual Task SendVerificationAsync(string userId, string toEmail, string verifyUrlBase, CancellationToken ct = default) =>
+        inner.SendVerificationAsync(userId, toEmail, verifyUrlBase, ct);
+
+    public virtual Task<EmailVerificationToken?> ConsumeTokenAsync(string token, CancellationToken ct = default) =>
+        inner.ConsumeTokenAsync(token, ct);
+
+    public virtual Task<bool> VerifyAsync(string token, CancellationToken ct = default) => inner.VerifyAsync(token, ct);
 }

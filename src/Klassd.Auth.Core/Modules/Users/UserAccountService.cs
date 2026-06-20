@@ -5,7 +5,17 @@ namespace Klassd.Auth.Core.Modules.Users;
 
 /// <summary>Claims-derived info from an external (SSO/OIDC) login, normalized.</summary>
 public sealed record ExternalUserInfo(
-    string ExternalId, string? Username = null, string? Email = null, bool EmailVerified = false);
+    string ExternalId, string? Username = null, string? Email = null, bool EmailVerified = false)
+{
+    /// <summary>
+    /// The provider's other claims captured at login (e.g. "picture", "hd", "groups"), keyed by claim
+    /// type. The default mapping carries all of them through so an override of
+    /// <see cref="IUserAccountService.ProvisionExternalAsync"/> can persist the ones it wants — to later
+    /// re-emit on every token via an <c>IAccessTokenClaimsEnricher</c>. The provider is only contacted
+    /// at login, so anything you need on refreshed tokens must be persisted here, not re-fetched.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> Claims { get; init; } = new Dictionary<string, string>();
+}
 
 /// <summary>Outcome of an explicit account-link attempt.</summary>
 public enum LinkOutcome { Linked, AlreadyLinkedToThisUser, ConflictOwnedByAnotherUser, UserNotFound }
@@ -20,7 +30,28 @@ public enum EmailUpdateOutcome { Updated, UserNotFound, EmailInUse }
 /// Klassd.Workflows's WorkflowsUserService expose, so one service serves both. Identity can be
 /// a username (CMS) or an email (Workflows); roles/preferences live in typed metadata, not here.
 /// </summary>
-public sealed class UserAccountService(IUserStore users, IPasswordHasher hasher)
+/// <summary>User lifecycle + credential/linking ops. Override via <c>auth.Override&lt;IUserAccountService&gt;(…)</c>.</summary>
+public interface IUserAccountService
+{
+    Task<User?> GetByIdAsync(string id, CancellationToken ct = default);
+    Task<User?> FindByUsernameAsync(string username, CancellationToken ct = default);
+    Task<User?> FindByEmailAsync(string email, CancellationToken ct = default);
+    Task<IReadOnlyList<User>> GetAllAsync(CancellationToken ct = default);
+    Task<User> CreateLocalAsync(string? username, string? email, string password, CancellationToken ct = default);
+    Task<User?> ProvisionExternalAsync(string provider, ExternalUserInfo info, bool autoProvision,
+        bool autoLinkByVerifiedEmail = false, CancellationToken ct = default);
+    Task<bool> SetDisabledAsync(string id, bool disabled, CancellationToken ct = default);
+    Task<bool> ResetPasswordAsync(string id, string newPassword, CancellationToken ct = default);
+    bool VerifyPassword(User user, string password);
+    Task<LinkResult> LinkExternalAsync(string userId, string provider, ExternalUserInfo info, CancellationToken ct = default);
+    Task<bool> UnlinkAsync(string userId, string methodId, CancellationToken ct = default);
+    Task<bool> AddPasswordAsync(string userId, string password, CancellationToken ct = default);
+    Task<bool> AddPasswordlessIdentityAsync(string userId, string identifier, PasswordlessChannel channel, CancellationToken ct = default);
+    Task<bool> IsEmailAvailableAsync(string userId, string email, CancellationToken ct = default);
+    Task<EmailUpdateOutcome> SetPrimaryEmailAsync(string userId, string email, bool verified, CancellationToken ct = default);
+}
+
+public sealed class UserAccountService(IUserStore users, IPasswordHasher hasher) : IUserAccountService
 {
     public Task<User?> GetByIdAsync(string id, CancellationToken ct = default) => users.FindByIdAsync(id, ct);
     public Task<User?> FindByUsernameAsync(string username, CancellationToken ct = default) => users.FindByUsernameAsync(username, ct);
@@ -267,4 +298,30 @@ public sealed class UserAccountService(IUserStore users, IPasswordHasher hasher)
     };
 
     private static string Norm(string email) => email.Trim().ToLowerInvariant();
+}
+
+/// <summary>Forwarding base for overriding <see cref="IUserAccountService"/>; override selectively, call <c>base</c> for the original.</summary>
+public abstract class UserAccountServiceDecorator(IUserAccountService inner) : IUserAccountService
+{
+    public virtual Task<User?> GetByIdAsync(string id, CancellationToken ct = default) => inner.GetByIdAsync(id, ct);
+    public virtual Task<User?> FindByUsernameAsync(string username, CancellationToken ct = default) => inner.FindByUsernameAsync(username, ct);
+    public virtual Task<User?> FindByEmailAsync(string email, CancellationToken ct = default) => inner.FindByEmailAsync(email, ct);
+    public virtual Task<IReadOnlyList<User>> GetAllAsync(CancellationToken ct = default) => inner.GetAllAsync(ct);
+    public virtual Task<User> CreateLocalAsync(string? username, string? email, string password, CancellationToken ct = default) =>
+        inner.CreateLocalAsync(username, email, password, ct);
+    public virtual Task<User?> ProvisionExternalAsync(string provider, ExternalUserInfo info, bool autoProvision,
+        bool autoLinkByVerifiedEmail = false, CancellationToken ct = default) =>
+        inner.ProvisionExternalAsync(provider, info, autoProvision, autoLinkByVerifiedEmail, ct);
+    public virtual Task<bool> SetDisabledAsync(string id, bool disabled, CancellationToken ct = default) => inner.SetDisabledAsync(id, disabled, ct);
+    public virtual Task<bool> ResetPasswordAsync(string id, string newPassword, CancellationToken ct = default) => inner.ResetPasswordAsync(id, newPassword, ct);
+    public virtual bool VerifyPassword(User user, string password) => inner.VerifyPassword(user, password);
+    public virtual Task<LinkResult> LinkExternalAsync(string userId, string provider, ExternalUserInfo info, CancellationToken ct = default) =>
+        inner.LinkExternalAsync(userId, provider, info, ct);
+    public virtual Task<bool> UnlinkAsync(string userId, string methodId, CancellationToken ct = default) => inner.UnlinkAsync(userId, methodId, ct);
+    public virtual Task<bool> AddPasswordAsync(string userId, string password, CancellationToken ct = default) => inner.AddPasswordAsync(userId, password, ct);
+    public virtual Task<bool> AddPasswordlessIdentityAsync(string userId, string identifier, PasswordlessChannel channel, CancellationToken ct = default) =>
+        inner.AddPasswordlessIdentityAsync(userId, identifier, channel, ct);
+    public virtual Task<bool> IsEmailAvailableAsync(string userId, string email, CancellationToken ct = default) => inner.IsEmailAvailableAsync(userId, email, ct);
+    public virtual Task<EmailUpdateOutcome> SetPrimaryEmailAsync(string userId, string email, bool verified, CancellationToken ct = default) =>
+        inner.SetPrimaryEmailAsync(userId, email, verified, ct);
 }

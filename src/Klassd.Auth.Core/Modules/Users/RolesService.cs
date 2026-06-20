@@ -7,7 +7,15 @@ namespace Klassd.Auth.Core.Modules.Users;
 /// core stays role-model-agnostic (Klassd CMS uses roles; Klassd.Workflows doesn't). Apps map
 /// these role strings to their own capability/permission model.
 /// </summary>
-public sealed class RolesService(UserMetadataService metadata)
+/// <summary>Per-user roles. Override via <c>auth.Override&lt;IRolesService&gt;(…)</c>.</summary>
+public interface IRolesService
+{
+    Task<IReadOnlyList<string>> GetRolesAsync(string userId, CancellationToken ct = default);
+    Task SetRolesAsync(string userId, IEnumerable<string> roles, CancellationToken ct = default);
+    Task<bool> IsInRoleAsync(string userId, string role, CancellationToken ct = default);
+}
+
+public sealed class RolesService(IUserMetadataService metadata) : IRolesService
 {
     private const string Key = "roles";
 
@@ -19,4 +27,17 @@ public sealed class RolesService(UserMetadataService metadata)
 
     public async Task<bool> IsInRoleAsync(string userId, string role, CancellationToken ct = default) =>
         (await GetRolesAsync(userId, ct)).Contains(role, StringComparer.OrdinalIgnoreCase);
+}
+
+/// <summary>Forwarding base for overriding <see cref="IRolesService"/>; override selectively, call <c>base</c> for the original.</summary>
+public abstract class RolesServiceDecorator(IRolesService inner) : IRolesService
+{
+    public virtual Task<IReadOnlyList<string>> GetRolesAsync(string userId, CancellationToken ct = default) =>
+        inner.GetRolesAsync(userId, ct);
+
+    public virtual Task SetRolesAsync(string userId, IEnumerable<string> roles, CancellationToken ct = default) =>
+        inner.SetRolesAsync(userId, roles, ct);
+
+    public virtual Task<bool> IsInRoleAsync(string userId, string role, CancellationToken ct = default) =>
+        inner.IsInRoleAsync(userId, role, ct);
 }

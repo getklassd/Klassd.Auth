@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Klassd.Auth.Abstractions;
 using Klassd.Auth.Core.Modules.EmailVerification;
 using Klassd.Auth.Core.Modules.Users;
 using Microsoft.AspNetCore.Authentication;
@@ -30,7 +31,7 @@ public static class CookieAuthEndpoints
         // ---- Local username/email + password login (form post) ---------------------------
         g.MapPost("/login", async (
             [FromForm] string identifier, [FromForm] string password, [FromForm] string? returnUrl,
-            HttpContext http, UserAccountService accounts, RolesService roles) =>
+            HttpContext http, IUserAccountService accounts, IRolesService roles) =>
         {
             if (!options.AllowLocalLogin) return Results.Forbid();
 
@@ -62,8 +63,10 @@ public static class CookieAuthEndpoints
             return Results.Challenge(props, [scheme]);
         });
 
-        // ---- External SSO: provision/link, then issue the app cookie ----------------------
-        g.MapGet("/external-callback", async (HttpContext http, UserAccountService accounts, RolesService roles) =>
+        // ---- External SSO: provision/link, run hooks, then issue the app cookie -----------
+        g.MapGet("/external-callback", async (
+            HttpContext http, IUserAccountService accounts, IRolesService roles,
+            IUserStore users, IEnumerable<IExternalSignInHook> hooks) =>
         {
             var result = await http.AuthenticateAsync(KlassdAuthSchemes.External);
             if (!result.Succeeded || result.Principal is null)
@@ -73,13 +76,29 @@ public static class CookieAuthEndpoints
             var provider = items is not null && items.TryGetValue("provider", out var p) ? p ?? "external" : "external";
             var returnUrl = items is not null && items.TryGetValue("returnUrl", out var ru) ? ru ?? "/" : "/";
 
-            var info = options.MapExternalUser(result.Principal);
+            var info = options.MapExternalUserFor(provider, result.Principal);
+
+            // Capture first-sign-in BEFORE provisioning: no login method for this identity yet.
+            var hookList = hooks as IReadOnlyList<IExternalSignInHook> ?? hooks.ToList();
+            var isFirstSignIn = hookList.Count > 0
+                && await users.FindThirdPartyAsync(provider, info.ExternalId, http.RequestAborted) is null;
+
             var user = await accounts.ProvisionExternalAsync(
                 provider, info, options.AutoProvisionExternalUsers, options.AutoLinkByVerifiedEmail);
             if (user is null || user.Disabled)
                 return Results.Redirect(Local(http, $"{options.LoginPath}?error=not_provisioned"));
 
-            var principal = await ClaimsPrincipalFactory.BuildAsync(user, roles);
+            // Run post-sign-in hooks with the provider's tokens; collect any claims they contribute.
+            var extraClaims = new List<Claim>();
+            if (hookList.Count > 0)
+            {
+                var ctx = new ExternalSignInContext(
+                    provider, user, isFirstSignIn, ReadTokens(result.Properties), result.Principal, http);
+                foreach (var hook in hookList)
+                    extraClaims.AddRange(await hook.OnSignedInAsync(ctx, http.RequestAborted));
+            }
+
+            var principal = await ClaimsPrincipalFactory.BuildAsync(user, roles, extraClaims, http.RequestAborted);
             await http.SignInAsync(KlassdAuthSchemes.Cookie, principal);
             await http.SignOutAsync(KlassdAuthSchemes.External);
             return Results.Redirect(Local(http, SafeReturn(returnUrl)));
@@ -98,7 +117,7 @@ public static class CookieAuthEndpoints
         }).RequireAuthorization(cookieAuth);
 
         // Attach the external identity to the CURRENT user (never steal one owned elsewhere).
-        g.MapGet("/link-callback", async (HttpContext http, UserAccountService accounts) =>
+        g.MapGet("/link-callback", async (HttpContext http, IUserAccountService accounts) =>
         {
             if (http.User.FindFirstValue(ClaimTypes.NameIdentifier) is not { } userId)
                 return Results.Redirect(Local(http, $"{options.LoginPath}?error=link"));
@@ -111,7 +130,7 @@ public static class CookieAuthEndpoints
             var provider = items is not null && items.TryGetValue("provider", out var p) ? p ?? "external" : "external";
             var returnUrl = items is not null && items.TryGetValue("returnUrl", out var ru) ? ru ?? "/" : "/";
 
-            var link = await accounts.LinkExternalAsync(userId, provider, options.MapExternalUser(result.Principal));
+            var link = await accounts.LinkExternalAsync(userId, provider, options.MapExternalUserFor(provider, result.Principal));
             await http.SignOutAsync(KlassdAuthSchemes.External);
 
             var status = link.Outcome switch
@@ -124,7 +143,7 @@ public static class CookieAuthEndpoints
             return Results.Redirect(AppendQuery(Local(http, SafeReturn(returnUrl)), "linked", status));
         }).RequireAuthorization(cookieAuth);
 
-        g.MapPost("/unlink", async ([FromForm] string methodId, HttpContext http, UserAccountService accounts) =>
+        g.MapPost("/unlink", async ([FromForm] string methodId, HttpContext http, IUserAccountService accounts) =>
         {
             if (http.User.FindFirstValue(ClaimTypes.NameIdentifier) is not { } userId) return Results.Unauthorized();
             return await accounts.UnlinkAsync(userId, methodId)
@@ -133,7 +152,7 @@ public static class CookieAuthEndpoints
         }).RequireAuthorization(cookieAuth).DisableAntiforgery();
 
         // Let a social-/passwordless-only user gain a password.
-        g.MapPost("/link/password", async ([FromForm] string password, HttpContext http, UserAccountService accounts) =>
+        g.MapPost("/link/password", async ([FromForm] string password, HttpContext http, IUserAccountService accounts) =>
         {
             if (http.User.FindFirstValue(ClaimTypes.NameIdentifier) is not { } userId) return Results.Unauthorized();
             return await accounts.AddPasswordAsync(userId, password)
@@ -142,7 +161,7 @@ public static class CookieAuthEndpoints
         }).RequireAuthorization(cookieAuth).DisableAntiforgery();
 
         // List the caller's own login methods (ids are needed to unlink).
-        g.MapGet("/me/methods", async (HttpContext http, UserAccountService accounts) =>
+        g.MapGet("/me/methods", async (HttpContext http, IUserAccountService accounts) =>
         {
             if (http.User.FindFirstValue(ClaimTypes.NameIdentifier) is not { } userId) return Results.Unauthorized();
             var user = await accounts.GetByIdAsync(userId);
@@ -159,7 +178,7 @@ public static class CookieAuthEndpoints
         // Start: the signed-in user submits an email; we send a verification link to prove ownership.
         g.MapPost("/me/email", async (
             [FromForm] string email,
-            HttpContext http, UserAccountService accounts, EmailVerificationService verification) =>
+            HttpContext http, IUserAccountService accounts, IEmailVerificationService verification) =>
         {
             if (http.User.FindFirstValue(ClaimTypes.NameIdentifier) is not { } userId) return Results.Unauthorized();
             if (!await accounts.IsEmailAvailableAsync(userId, email)) return Results.Conflict(new { error = "EMAIL_IN_USE" });
@@ -173,7 +192,7 @@ public static class CookieAuthEndpoints
         // Confirm: the link's token proves ownership → set it as the (verified) primary email.
         // No auth required — the token itself carries the user + email and is the capability.
         g.MapGet("/me/email/confirm", async (
-            string token, HttpContext http, UserAccountService accounts, EmailVerificationService verification) =>
+            string token, HttpContext http, IUserAccountService accounts, IEmailVerificationService verification) =>
         {
             var record = await verification.ConsumeTokenAsync(token);
             if (record is null) return Results.Redirect(AppendQuery(Local(http, "/"), "email", "error"));
@@ -200,4 +219,20 @@ public static class CookieAuthEndpoints
     // Only allow local redirects, to avoid open-redirect via returnUrl.
     private static string SafeReturn(string? returnUrl) =>
         !string.IsNullOrEmpty(returnUrl) && returnUrl.StartsWith('/') && !returnUrl.StartsWith("//") ? returnUrl : "/";
+
+    // Pull the provider tokens the external handler saved into the ticket (requires SaveTokens=true,
+    // which the built-in providers set). Empty when a provider didn't save tokens.
+    private static ExternalTokens ReadTokens(AuthenticationProperties? props)
+    {
+        var all = props?.GetTokens().ToDictionary(t => t.Name, t => t.Value)
+                  ?? new Dictionary<string, string>();
+        DateTimeOffset? expires =
+            all.TryGetValue("expires_at", out var e) && DateTimeOffset.TryParse(e, out var dt) ? dt : null;
+        return new ExternalTokens(
+            all.GetValueOrDefault("access_token"),
+            all.GetValueOrDefault("id_token"),
+            all.GetValueOrDefault("refresh_token"),
+            expires,
+            all);
+    }
 }

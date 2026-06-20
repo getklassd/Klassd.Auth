@@ -1,0 +1,46 @@
+# One-shot migration into Klassd.Auth, run as a Kubernetes Job.
+#
+# Running it as a Job (rather than on every pod's startup) is what makes the migration safe:
+#   * a Job runs ONE pod to completion, so it never re-runs when your web Deployment restarts/scales;
+#   * there is exactly one runner, so racing replicas can't double-import.
+# The import is also idempotent (existing users are skipped), so a re-applied Job is harmless.
+#
+# Pre-flight (recommended): drop `--apply` for a dry run first and inspect the report in the logs.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: klassd-auth-migrate
+spec:
+  backoffLimit: 2          # retry a couple of times on transient DB errors
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: your-app:tag                       # the same image as your app — it has the migrate verb
+          args:
+            - "migrate-auth"
+            - "--source"
+            - "supertokens-pg"                        # or: auth0 | supertokens | supertokens-mysql
+            - "--conn"
+            - "$(SUPERTOKENS_CONN)"
+            - "--apply"                               # omit for a dry run
+          env:
+            # The TARGET Klassd.Auth database (same config your app uses).
+            - name: Auth__Sqlite__ConnectionString
+              valueFrom: { secretKeyRef: { name: klassd-auth, key: db-conn } }
+            # The SOURCE SuperTokens database to read from.
+            - name: SUPERTOKENS_CONN
+              valueFrom: { secretKeyRef: { name: supertokens, key: conn } }
+---
+# Alternatively, run it as an initContainer on your web Deployment so a fresh environment is migrated
+# before the app serves traffic. Note: with multiple replicas, EACH pod's initContainer runs — that's
+# safe only because the import is idempotent (the second pod's run skips everyone). Prefer the Job
+# above when you can; use this only when you cannot run a separate Job.
+#
+# spec.template.spec.initContainers:
+#   - name: migrate
+#     image: your-app:tag
+#     args: ["migrate-auth", "--source", "supertokens-pg", "--conn", "$(SUPERTOKENS_CONN)", "--apply"]
+#     env: [ ... same as above ... ]

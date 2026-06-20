@@ -97,6 +97,14 @@ public sealed class SqliteSchemaInitializer(SqliteContext ctx) : IAuthStorageIni
             CREATE UNIQUE INDEX IF NOT EXISTS ux_pk_credential ON passkey_credentials(credential_id);
             CREATE INDEX IF NOT EXISTS ix_pk_user   ON passkey_credentials(user_id);
             CREATE INDEX IF NOT EXISTS ix_pk_handle ON passkey_credentials(user_handle);
+
+            CREATE TABLE IF NOT EXISTS migration_state (
+                migration_id    TEXT PRIMARY KEY,
+                completed_at    TEXT,
+                details         TEXT,
+                lock_owner      TEXT,
+                lock_expires_at TEXT
+            );
             """;
         await cmd.ExecuteNonQueryAsync(ct);
 

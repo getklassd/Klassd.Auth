@@ -8,6 +8,9 @@
     <Project Path="src/Klassd.Auth.Data.MongoDb/Klassd.Auth.Data.MongoDb.csproj" />
     <Project Path="src/Klassd.Auth.Data.Postgres/Klassd.Auth.Data.Postgres.csproj" />
     <Project Path="src/Klassd.Auth.Data.Sqlite/Klassd.Auth.Data.Sqlite.csproj" />
+    <Project Path="src/Klassd.Auth.Migration/Klassd.Auth.Migration.csproj" />
+    <Project Path="src/Klassd.Auth.Migration.SuperTokens.MySql/Klassd.Auth.Migration.SuperTokens.MySql.csproj" />
+    <Project Path="src/Klassd.Auth.Migration.SuperTokens.Postgres/Klassd.Auth.Migration.SuperTokens.Postgres.csproj" />
     <Project Path="src/Klassd.Auth.OAuth/Klassd.Auth.OAuth.csproj" />
     <Project Path="src/Klassd.Auth.OpenIdConnect/Klassd.Auth.OpenIdConnect.csproj" />
     <Project Path="src/Klassd.Auth.Passkeys/Klassd.Auth.Passkeys.csproj" />

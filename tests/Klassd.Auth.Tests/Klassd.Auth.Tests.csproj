@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
   </ItemGroup>
 
   <ItemGroup>
@@ -15,6 +16,8 @@
     <ProjectReference Include="..\..\src\Klassd.Auth.Passkeys\Klassd.Auth.Passkeys.csproj" />
     <ProjectReference Include="..\..\src\Klassd.Auth.OAuth\Klassd.Auth.OAuth.csproj" />
     <ProjectReference Include="..\..\src\Klassd.Auth.Webhooks\Klassd.Auth.Webhooks.csproj" />
+    <ProjectReference Include="..\..\src\Klassd.Auth.Migration\Klassd.Auth.Migration.csproj" />
+    <ProjectReference Include="..\..\src\Klassd.Auth.Data.Sqlite\Klassd.Auth.Data.Sqlite.csproj" />
   </ItemGroup>
 
 </Project>

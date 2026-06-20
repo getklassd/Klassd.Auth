@@ -26,6 +26,13 @@
     <!-- SMS provider (passwordless over SMS) -->
     <PackageVersion Include="Twilio" Version="7.14.9" />
 
+    <!-- Migration: verify legacy bcrypt/argon2 password hashes from Auth0 / SuperTokens at login -->
+    <PackageVersion Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageVersion Include="Isopoh.Cryptography.Argon2" Version="2.0.0" />
+
+    <!-- Migration: read a SuperTokens core DB directly (Postgres reuses Npgsql above) -->
+    <PackageVersion Include="MySqlConnector" Version="2.6.0" />
+
     <!-- Storage adapters (raw drivers, no EF/ORM — matches Klassd house convention) -->
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.8" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />

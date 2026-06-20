@@ -21,7 +21,7 @@ public static class PasskeyEndpoints
         this IEndpointRouteBuilder app, string basePath = "/passkeys")
         => Map(app, basePath, async (http, user) =>
         {
-            var sessions = http.RequestServices.GetRequiredService<SessionService>();
+            var sessions = http.RequestServices.GetRequiredService<ISessionService>();
             return Results.Ok(await sessions.CreateAsync(user.Id));
         });
 
@@ -40,7 +40,7 @@ public static class PasskeyEndpoints
         var g = app.MapGroup(basePath);
 
         // ---- Registration (requires an authenticated user) --------------------------------
-        g.MapPost("/register/options", async (HttpContext http, PasskeyService passkeys, UserAccountService accounts) =>
+        g.MapPost("/register/options", async (HttpContext http, PasskeyService passkeys, IUserAccountService accounts) =>
         {
             if (CurrentUserId(http) is not { } userId) return Results.Unauthorized();
             var user = await accounts.GetByIdAsync(userId);
@@ -66,7 +66,7 @@ public static class PasskeyEndpoints
 
         // ---- Login --------------------------------------------------------------------------
         g.MapPost("/login/options", async (
-            HttpContext http, PasskeyLoginOptionsRequest? req, PasskeyService passkeys, UserAccountService accounts) =>
+            HttpContext http, PasskeyLoginOptionsRequest? req, PasskeyService passkeys, IUserAccountService accounts) =>
         {
             string? userId = null;
             if (!string.IsNullOrWhiteSpace(req?.Identifier))

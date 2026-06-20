@@ -54,6 +54,8 @@ public class SqliteStoreTests
     [Test] public Task Login_method_add_remove() => AuthStoreScenarios.LoginMethodAddRemove(_provider!);
     [Test] public Task User_delete_cascade() => AuthStoreScenarios.UserDeleteCascade(_provider!);
     [Test] public Task Password_reset_token() => AuthStoreScenarios.PasswordResetTokenRoundTrip(_provider!);
+    [Test] public Task Migration_state() => AuthStoreScenarios.MigrationStateLifecycle(_provider!);
+    [Test] public Task Access_token_payload_merge() => AuthStoreScenarios.AccessTokenPayloadMerge(_provider!);
 }
 
 /// <summary>
@@ -105,6 +107,8 @@ public class PostgresStoreTests
     [Test] public Task Login_method_add_remove() => AuthStoreScenarios.LoginMethodAddRemove(_provider!);
     [Test] public Task User_delete_cascade() => AuthStoreScenarios.UserDeleteCascade(_provider!);
     [Test] public Task Password_reset_token() => AuthStoreScenarios.PasswordResetTokenRoundTrip(_provider!);
+    [Test] public Task Migration_state() => AuthStoreScenarios.MigrationStateLifecycle(_provider!);
+    [Test] public Task Access_token_payload_merge() => AuthStoreScenarios.AccessTokenPayloadMerge(_provider!);
 }
 
 /// <summary>
@@ -136,4 +140,6 @@ public class MongoStoreTests
     [Test] public Task Login_method_add_remove() => AuthStoreScenarios.LoginMethodAddRemove(_provider!);
     [Test] public Task User_delete_cascade() => AuthStoreScenarios.UserDeleteCascade(_provider!);
     [Test] public Task Password_reset_token() => AuthStoreScenarios.PasswordResetTokenRoundTrip(_provider!);
+    [Test] public Task Migration_state() => AuthStoreScenarios.MigrationStateLifecycle(_provider!);
+    [Test] public Task Access_token_payload_merge() => AuthStoreScenarios.AccessTokenPayloadMerge(_provider!);
 }

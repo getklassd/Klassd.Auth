@@ -5,8 +5,15 @@ namespace Klassd.Auth.Core.Modules.EmailPassword;
 
 public sealed record AuthResult(bool Success, string? UserId = null, string? Error = null);
 
+/// <summary>Sign-up / sign-in with email + password. Override via <c>auth.Override&lt;IEmailPasswordService&gt;(…)</c>.</summary>
+public interface IEmailPasswordService
+{
+    Task<AuthResult> SignUpAsync(string email, string password, CancellationToken ct = default);
+    Task<AuthResult> SignInAsync(string email, string password, CancellationToken ct = default);
+}
+
 /// <summary>Sign-up / sign-in with email + password.</summary>
-public sealed class EmailPasswordService(IUserStore users, IPasswordHasher hasher)
+public sealed class EmailPasswordService(IUserStore users, IPasswordHasher hasher) : IEmailPasswordService
 {
     public async Task<AuthResult> SignUpAsync(string email, string password, CancellationToken ct = default)
     {
@@ -52,4 +59,17 @@ public sealed class EmailPasswordService(IUserStore users, IPasswordHasher hashe
     }
 
     private static string Normalize(string email) => email.Trim().ToLowerInvariant();
+}
+
+/// <summary>
+/// Forwards every <see cref="IEmailPasswordService"/> call to an inner instance. Derive from it and
+/// override only the methods you want to change, calling <c>base.X(...)</c> for the original behavior.
+/// </summary>
+public abstract class EmailPasswordServiceDecorator(IEmailPasswordService inner) : IEmailPasswordService
+{
+    public virtual Task<AuthResult> SignUpAsync(string email, string password, CancellationToken ct = default) =>
+        inner.SignUpAsync(email, password, ct);
+
+    public virtual Task<AuthResult> SignInAsync(string email, string password, CancellationToken ct = default) =>
+        inner.SignInAsync(email, password, ct);
 }

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>Klassd.Auth.Migration.SuperTokens.Postgres</PackageId>
+    <Description>Migrate users into Klassd.Auth by reading a SuperTokens core database directly over PostgreSQL (Npgsql). Construct with a connection string and run via MigrationRunner.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Klassd.Auth.Migration\Klassd.Auth.Migration.csproj" />
+  </ItemGroup>
+
+</Project>

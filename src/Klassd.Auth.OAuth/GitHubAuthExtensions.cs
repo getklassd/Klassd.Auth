@@ -26,6 +26,7 @@ public static class GitHubAuthExtensions
             ab.AddOAuth(scheme, o =>
             {
                 o.SignInScheme = KlassdAuthSchemes.External;
+                o.SaveTokens = true;   // surface provider tokens to IExternalSignInHook
                 o.ClientId = clientId;
                 o.ClientSecret = clientSecret;
                 o.CallbackPath = $"/signin-{scheme}";

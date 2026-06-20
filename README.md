@@ -27,6 +27,9 @@ public feature model, not a port or migration of any existing project's source.
 | `Klassd.Auth.Data.Sqlite` | SQLite adapter (raw `Microsoft.Data.Sqlite`, JSON-in-TEXT) |
 | `Klassd.Auth.Data.Postgres` | PostgreSQL adapter (raw `Npgsql`, jsonb) |
 | `Klassd.Auth.Data.MongoDb` | MongoDB adapter (`MongoDB.Driver`) |
+| `Klassd.Auth.Migration` | Import users **into** Klassd.Auth from **Auth0** & **SuperTokens** (JSON exports) — `AddAuthMigration()` |
+| `Klassd.Auth.Migration.SuperTokens.Postgres` | Read a SuperTokens core DB directly over **PostgreSQL** (Npgsql) by connection string |
+| `Klassd.Auth.Migration.SuperTokens.MySql` | Read a SuperTokens core DB directly over **MySQL** (MySqlConnector) by connection string |
 | `Klassd.Auth.Sample` | Runnable example host |
 
 Storage adapters use **raw drivers, no EF/ORM**, matching the Klassd house convention.
@@ -197,6 +200,105 @@ Verification mirrors the Klassd CMS outbound signing scheme and adds a timestamp
 300s) to reject replays. Forged/stale/unsigned requests get `401`; unknown users `404`. Each applied
 action is logged via `ILogger` for an audit trail.
 
+### Migrating in from Auth0 / SuperTokens (`Klassd.Auth.Migration`)
+
+Import an existing user base into Klassd.Auth — passwords, social logins, roles, metadata and TOTP
+included. Point a source at the export file and run it through the `MigrationRunner`:
+
+```csharp
+builder.Services
+    .AddKlassdAuth(sessionConfig)
+    .UseSqlite("Data Source=auth.db")
+    .AddAuthMigration();   // registers MigrationRunner + legacy-aware password verification
+
+// ...later, from a scope (one-off CLI / admin endpoint / hosted task):
+var runner = sp.GetRequiredService<MigrationRunner>();
+
+// Auth0 — bulk-export NDJSON or the user-import JSON array. Map provider ids to yours.
+var auth0 = new Auth0MigrationSource("auth0-users.json",
+    mapProvider: p => p == "google-oauth2" ? "google" : p);
+
+// SuperTokens — the bulk-import document ({ "users": [...] }) or a bare array.
+var superTokens = new SuperTokensMigrationSource("supertokens-users.json");
+
+// SuperTokens — or read the core database directly (no export needed):
+var superTokensDb = new SuperTokensPostgresMigrationSource(   // .SuperTokens.Postgres package
+    "Host=localhost;Database=supertokens;Username=…;Password=…");
+// var superTokensDb = new SuperTokensMySqlMigrationSource("Server=…;Database=supertokens;…");  // .SuperTokens.MySql
+// Linked accounts (grouped by SuperTokens' primary_or_recipe_user_id) become one Klassd user
+// with multiple login methods. Pass SuperTokensDbOptions to set AppId / schema / provider mapping.
+
+var report = await runner.RunAsync(auth0, new MigrationOptions
+{
+    DryRun = true,                          // verify first, write nothing
+    OnConflict = ConflictPolicy.Skip,       // or .Merge to attach missing login methods
+});
+Console.WriteLine($"{report.Created} created, {report.Skipped} skipped, " +
+                  $"{report.PasswordsDropped} need a reset, {report.Failed} failed");
+```
+
+How it maps:
+
+- **Passwords** — bcrypt and argon2 hashes carry over **verbatim** and verify at sign-in via the
+  legacy-aware hasher `AddAuthMigration()` installs; a credential silently upgrades to Klassd's native
+  pbkdf2 the next time it's set. Unverifiable hashes (Firebase scrypt, passlib pbkdf2, …) create a
+  password-less account that the user resets — these are counted in `report.PasswordsDropped`.
+- **Social / OIDC** — Auth0 `identities[]` and SuperTokens `thirdparty` login methods become linked
+  third-party methods (the Auth0 `auth0` database connection is treated as email/password, not social).
+- **Passwordless, roles, metadata, TOTP** — email/phone passwordless methods, roles, free-form
+  metadata and the TOTP secret all carry over (toggle each via `MigrationOptions`).
+
+Runs are **idempotent**: re-running matches existing users by email then username, and either skips or
+merges them. Sources stream the export, so large dumps don't load whole.
+
+#### Running it in production (Kubernetes)
+
+Run the migration as a **one-shot operation, not on every pod's startup.** The sample host exposes a
+`migrate-auth` verb for exactly this (it creates the schema, runs the import, prints a report, exits —
+without starting the web server):
+
+```bash
+# dry run first (no --apply), then commit
+dotnet run -- migrate-auth --source supertokens-pg --conn "Host=…;Database=supertokens;…"
+dotnet run -- migrate-auth --source supertokens-pg --conn "Host=…;Database=supertokens;…" --apply
+```
+
+Package it as a Kubernetes **`Job`** (manifest in [`docs/migrate-job.yaml`](docs/migrate-job.yaml)). This
+is what makes it safe:
+
+- **It won't re-run when your app restarts.** Nothing in `AddAuthMigration()` runs on startup — the
+  migration only happens when *you* invoke it. A `Job` runs once; your web `Deployment` never touches it.
+- **Racing replicas can't double-import**, because a `Job` runs a single pod. (Note: the check-then-insert
+  in the runner is *not* internally locked, so do **not** run the importer from N web replicas
+  concurrently — the idempotent skip only protects sequential re-runs, not a true concurrent race. One
+  Job, or rely on a unique-email index in your adapter as a backstop.)
+
+The idempotent skip is then just a safety net: re-applying the Job is harmless.
+
+#### Embedding it in startup (multi-replica safe)
+
+If you can't run a separate Job and must migrate from app startup with several replicas, use the
+**guarded** path. It's backed by `IMigrationStateStore` (provided by the Sqlite/Postgres/MongoDb
+adapters): a durable **completion ledger** so it runs at most once ever, plus a **distributed lease**
+so only one replica runs it — the lease auto-expires and is heartbeated, so a crashed holder can't
+wedge it.
+
+```csharp
+builder.Services
+    .AddKlassdAuth(sessionConfig)
+    .UsePostgres(cs)
+    .AddAuthMigration()
+    .RunMigrationOnStartup(
+        migrationId: "auth0-import-2026-06",                  // recorded in the ledger; runs once ever
+        sourceFactory: sp => new Auth0MigrationSource("/seed/auth0-export.json"),
+        configureOptions: o => o.OnConflict = ConflictPolicy.Skip);
+```
+
+Every replica starts the hosted service; exactly one wins the lease and imports, the rest observe
+`AlreadyCompleted`/`LockHeldByAnother` and move on. It runs in the background (never blocks the host)
+and only writes the ledger on success, so a failed run retries on the next start. To drive it yourself
+instead, resolve `MigrationCoordinator` and call `RunOnceAsync(migrationId, source, …)`.
+
 ### Token signing
 
 Access tokens are HS256 by default (shared secret). For asymmetric signing:
@@ -209,6 +311,209 @@ Access tokens are HS256 by default (shared secret). For asymmetric signing:
 Either way the public key(s) are published at `/auth/jwks.json` so resource servers validate
 tokens without a shared secret. Email-verification tokens are likewise persisted (hashed, with a
 TTL, single-use) by the storage adapter, so they survive restarts and scale across nodes.
+
+### Custom access-token claims
+
+Every access token carries `sub` and `sessionHandle`, plus any `SessionData` entries (prefixed
+`sd_` by default — set `SessionConfig.SessionDataClaimPrefix = ""` to drop the prefix). To add your
+own claims — roles, tenant, plan, profile fields — register a **claims enricher**. It runs on every
+token issue, **at sign-in and on each refresh**, so claims derived from live data stay current
+instead of freezing at login:
+
+```csharp
+// Inline — resolve whatever you need from DI per issue:
+auth.AddAccessTokenClaims(async (ctx, sp, ct) =>
+{
+    var roles = await sp.GetRequiredService<RolesService>().GetRolesAsync(ctx.UserId, ct);
+    return roles.Select(r => new Claim(ClaimTypes.Role, r))
+                .Append(new Claim("tenant", await LookupTenantAsync(ctx.UserId)));
+});
+
+// …or a class, for testability. Register as many as you like — all contribute:
+auth.AddAccessTokenClaimsEnricher<MyClaimsEnricher>();
+```
+
+```csharp
+public sealed class MyClaimsEnricher(IRolesService roles) : IAccessTokenClaimsEnricher
+{
+    public async Task<IEnumerable<Claim>> GetClaimsAsync(AccessTokenClaimsContext ctx, CancellationToken ct = default) =>
+        (await roles.GetRolesAsync(ctx.UserId, ct)).Select(r => new Claim(ClaimTypes.Role, r));
+}
+```
+
+Enricher claims are emitted unprefixed (only `SessionData` gets the `sd_` prefix).
+
+#### Merging claims into a live session (`MergeIntoAccessTokenPayload` equivalent)
+
+When you need a claim that's only known at a point in time — e.g. captured from a third-party provider
+at sign-in — write it into the **session's stored payload**. It then rides on the access token issued
+next and on **every refresh** (the provider is only contacted at login, so anything you need on
+refreshed tokens must be persisted, not re-fetched). This is the equivalent of SuperTokens'
+`sessionContainer.MergeIntoAccessTokenPayload`:
+
+```csharp
+// after a third-party sign-in, having created the session:
+await sessions.MergeIntoAccessTokenPayloadAsync(handle, new Dictionary<string, object?>
+{
+    ["first_name"] = profile.GivenName,
+    ["picture"]    = pictureUrl,
+    ["roles"]      = profile.Roles,   // string[] → a real JSON array claim
+});
+// pass null as a value to remove a claim.
+```
+
+String values become string claims; arrays/objects become **real JSON claims** (so `roles` lands as a
+JWT array, which the handler maps to `ClaimTypes.Role` so `User.IsInRole` / `[Authorize(Roles=…)]`
+work). Names use `SessionConfig.SessionDataClaimPrefix` (set it to `""` for raw names).
+
+The full third-party pattern (mirrors the SuperTokens Azure AD example): override
+`IUserAccountService.ProvisionExternalAsync` to persist the provider's claims (available on
+`ExternalUserInfo.Claims`, which the default mapping fills from all provider claims) into user
+metadata, then merge them onto the session — or, for claims that should always reflect live data, read
+them back in an `IAccessTokenClaimsEnricher`. Use the **merge** for values fixed at login (name,
+picture); use the **enricher** for values that can change between refreshes (roles from your own store).
+
+#### Post-external-sign-in hook (with the provider's tokens)
+
+When you need the provider's **OAuth tokens** themselves — e.g. to call Microsoft Graph for a profile
+picture during sign-in, exactly like the SuperTokens `AzureAdV2PostSignInUp` hook — register an
+`IExternalSignInHook`. It runs after an SSO sign-in resolves to a local user, receives the provider's
+tokens, and returns any claims to add to the app cookie:
+
+```csharp
+auth.AddExternalSignInHook(async (ctx, sp, ct) =>
+{
+    // ctx.Provider, ctx.User, ctx.IsFirstSignIn, ctx.Tokens.AccessToken/IdToken/RefreshToken, ctx.Principal
+    var picture = await FetchGraphPhotoAsync(ctx.Tokens.AccessToken!, ct);   // call the provider
+    await sp.GetRequiredService<IUserMetadataService>()
+            .SetAsync(ctx.User.Id, "profile", new { picture }, ct);          // persist
+    return [new Claim("picture", picture)];                                  // → onto the cookie
+});
+
+// or a class, for testability:
+auth.AddExternalSignInHook<AzureProfileHook>();
+```
+
+The built-in providers enable token saving, so `ctx.Tokens` is populated (access/id/refresh + expiry,
+plus the full set in `ctx.Tokens.All`). Use this hook for things that need the provider token at
+login; use `MergeIntoAccessTokenPayloadAsync` / the enricher for the JWT/session path.
+
+#### Working with the session like a SuperTokens `sessionContainer`
+
+For the JWT/bearer flow, a `KlassdSession` is the `sessionContainer` analogue. Resolve it from the
+current request (the bearer token) and merge into its payload — the equivalent of
+`session.GetSessionFromRequestContext(ctx).MergeIntoAccessTokenPayload(...)`:
+
+```csharp
+app.MapPost("/me/refresh-profile", async (HttpContext http) =>
+{
+    var session = await http.GetKlassdSessionAsync();      // from Authorization: Bearer
+    if (session is null) return Results.Unauthorized();
+    await session.MergeIntoAccessTokenPayloadAsync(new { picture = await FetchPictureAsync() });
+    return Results.Ok();
+});
+```
+
+`KlassdSession` exposes `Handle`, `UserId`, `GetAccessTokenPayload()`, `GetClaimValue<T>(key)`,
+`MergeIntoAccessTokenPayloadAsync(...)` (dictionary **or** anonymous object), and `RevokeAsync()`.
+You can also resolve one by handle with `ISessionService.GetSessionAsync(handle)`.
+
+To stamp claims onto **every** session as it's created — the `CreateNewSession` override analogue —
+register a session-create hook; it's handed the live session to merge into:
+
+```csharp
+auth.AddSessionCreateHook(async (session, ctx, sp, ct) =>
+{
+    var roles = await sp.GetRequiredService<IRolesService>().GetRolesAsync(ctx.UserId, ct);
+    await session.MergeIntoAccessTokenPayloadAsync(new { roles });
+});
+```
+
+When you create the session yourself you can pass provider context to those hooks:
+`await sessions.CreateAsync(userId, sessionData: null, metadata: new Dictionary<string, object?> { ["provider"] = "azuread" });`
+— the hook reads it from `ctx.Metadata`.
+
+#### JWT third-party sign-in with a post-sign-in hook (provider tokens + session)
+
+For a bearer/JWT third-party flow (no cookie), map the third-party endpoints and register an
+`IThirdPartySignInHook`. It's the closest match to the Go service's `SignInUpPOST` override calling
+`AzureAdV2PostSignInUp(userId, OAuthTokens, sessionContainer, newUser)`: after the code exchange and
+session creation, the hook gets the provider's **tokens**, the **new-user** flag, and the live
+**session** to merge into — and the returned access token reflects the merge.
+
+```csharp
+app.MapKlassdThirdParty();          // GET /auth/thirdparty/{p}/authurl, POST /auth/thirdparty/{p}/signin
+auth.AddProvider<AzureAdProvider>();   // your IThirdPartyProvider (ExchangeCodeAsync returns profile + tokens)
+
+auth.AddThirdPartySignInHook(async (ctx, sp, ct) =>
+{
+    // ctx.Provider, ctx.UserId, ctx.IsNewUser, ctx.Tokens (access/id/refresh), ctx.Profile, ctx.Session
+    var picture = await FetchGraphPhotoAsync(ctx.Tokens.AccessToken!, ct);
+    await sp.GetRequiredService<IUserMetadataService>().SetAsync(ctx.UserId, "profile", new { picture }, ct);
+    await ctx.Session.MergeIntoAccessTokenPayloadAsync(new { picture, roles = ctx.Profile.Claims.GetValueOrDefault("roles") });
+});
+```
+
+The frontend gets an authorization URL from `…/authurl?redirectUri=…`, redirects the user, then POSTs
+the returned `code` to `…/signin`, which responds with `{ accessToken, refreshToken, handle, createdNewUser }`.
+
+#### Per-provider profile mapping (`GetUserInfo` override)
+
+To control how one provider's claims map to a user — the per-provider `GetUserInfo` analogue —
+register a mapper for that scheme; it wins over the global `MapExternalUser`:
+
+```csharp
+auth.MapExternalProfile("azuread", principal => new ExternalUserInfo(
+    ExternalId: principal.FindFirstValue("oid")!,
+    Email: principal.FindFirstValue("preferred_username"),
+    EmailVerified: true)
+{
+    Claims = principal.Claims.ToDictionary(c => c.Type, c => c.Value),
+});
+```
+
+### Overriding behavior (hooks)
+
+Every core service is an interface with a default implementation, and you can **wrap any of them** to
+inject your own logic — the same model as SuperTokens' recipe-function overrides. Call
+`auth.Override<IService>(...)` with a decorator that runs your code and calls `base.X(...)` for the
+original. The whole suite (HTTP endpoints, cookie sign-in, webhooks) resolves these by interface, so
+an override takes effect everywhere automatically.
+
+```csharp
+builder.Services
+    .AddKlassdAuth(sessionConfig)
+    .UseSqlite("Data Source=auth.db")
+    .Override<IEmailPasswordService>((inner, sp) => new NoDisposableEmail(inner))
+    .Override<IUserAccountService>((inner, sp) => new DefaultRoleOnSignup(inner, sp));
+
+// Derive from the matching ...Decorator base so you override only what you need:
+public sealed class NoDisposableEmail(IEmailPasswordService inner) : EmailPasswordServiceDecorator(inner)
+{
+    public override Task<AuthResult> SignUpAsync(string email, string password, CancellationToken ct = default) =>
+        email.EndsWith("@tempmail.com", StringComparison.OrdinalIgnoreCase)
+            ? Task.FromResult(new AuthResult(false, Error: "DISPOSABLE_EMAIL_BLOCKED"))
+            : base.SignUpAsync(email, password, ct);   // ← the original
+}
+
+// The factory hands you the IServiceProvider, so an override can pull in other services:
+public sealed class DefaultRoleOnSignup(IUserAccountService inner, IServiceProvider sp)
+    : UserAccountServiceDecorator(inner)
+{
+    public override async Task<User> CreateLocalAsync(string? u, string? e, string pw, CancellationToken ct = default)
+    {
+        var user = await base.CreateLocalAsync(u, e, pw, ct);
+        await sp.GetRequiredService<IRolesService>().SetRolesAsync(user.Id, ["member"], ct);
+        return user;
+    }
+}
+```
+
+Overrides **stack** — the last registered wraps the previous, so each can pre/post-process and delegate
+inward. Overridable services: `IEmailPasswordService`, `ISessionService`, `IThirdPartyService`,
+`IPasswordResetService`, `IEmailVerificationService`, `IUserAccountService`,
+`IAccountLifecycleService`, `IRolesService`, `IUserMetadataService`, `ITotpService` — each with a
+`…ServiceDecorator` base class.
 
 ## Design notes
 

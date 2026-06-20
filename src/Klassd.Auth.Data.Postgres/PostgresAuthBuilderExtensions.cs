@@ -19,6 +19,7 @@ public static class PostgresAuthBuilderExtensions
         auth.Services.AddSingleton<IPasswordResetTokenStore, PostgresPasswordResetTokenStore>();
         auth.Services.AddSingleton<IPasswordlessCodeStore, PostgresPasswordlessCodeStore>();
         auth.Services.AddSingleton<IPasskeyCredentialStore, PostgresPasskeyCredentialStore>();
+        auth.Services.AddSingleton<IMigrationStateStore, PostgresMigrationStateStore>();
         auth.Services.AddSingleton<IAuthStorageInitializer, PostgresSchemaInitializer>();
         return auth;
     }

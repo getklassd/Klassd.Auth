@@ -29,7 +29,7 @@ public static class PasswordlessEndpoints
             return Results.Accepted();   // never reveals whether the identifier exists
         });
 
-        g.MapPost("/verify", async (PasswordlessVerifyRequest req, PasswordlessService pwl, SessionService sessions) =>
+        g.MapPost("/verify", async (PasswordlessVerifyRequest req, PasswordlessService pwl, ISessionService sessions) =>
         {
             var r = await pwl.VerifyAsync(req.Identifier, req.Channel, req.Code);
             return r.Success
@@ -64,7 +64,7 @@ public static class PasswordlessEndpoints
             [Microsoft.AspNetCore.Mvc.FromForm] PasswordlessChannel channel,
             [Microsoft.AspNetCore.Mvc.FromForm] string code,
             [Microsoft.AspNetCore.Mvc.FromForm] string? returnUrl,
-            HttpContext http, PasswordlessService pwl, UserAccountService accounts) =>
+            HttpContext http, PasswordlessService pwl, IUserAccountService accounts) =>
         {
             var r = await pwl.VerifyAsync(identifier, channel, code);
             if (!r.Success) return Results.Redirect($"/login?error={r.Error}");

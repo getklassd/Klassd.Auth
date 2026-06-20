@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Klassd.Auth.Abstractions\Klassd.Auth.Abstractions.csproj" />
     <ProjectReference Include="..\..\src\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+    <ProjectReference Include="..\..\src\Klassd.Auth.AspNetCore\Klassd.Auth.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\Klassd.Auth.AspNetCore.Cookies\Klassd.Auth.AspNetCore.Cookies.csproj" />
     <ProjectReference Include="..\..\src\Klassd.Auth.Data.Sqlite\Klassd.Auth.Data.Sqlite.csproj" />
     <ProjectReference Include="..\..\src\Klassd.Auth.Data.Postgres\Klassd.Auth.Data.Postgres.csproj" />

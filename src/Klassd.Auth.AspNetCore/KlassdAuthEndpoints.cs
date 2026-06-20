@@ -39,7 +39,7 @@ public static class KlassdAuthEndpoints
         var g = app.MapGroup(opts.BasePath);
 
         // ---- Email / password + sessions --------------------------------------------------
-        g.MapPost("/signup", async (Credentials c, EmailPasswordService ep, SessionService sessions) =>
+        g.MapPost("/signup", async (Credentials c, IEmailPasswordService ep, ISessionService sessions) =>
         {
             var r = await ep.SignUpAsync(c.Email, c.Password);
             return r.Success
@@ -47,7 +47,7 @@ public static class KlassdAuthEndpoints
                 : Results.BadRequest(new { error = r.Error });
         });
 
-        g.MapPost("/signin", async (Credentials c, EmailPasswordService ep, SessionService sessions) =>
+        g.MapPost("/signin", async (Credentials c, IEmailPasswordService ep, ISessionService sessions) =>
         {
             var r = await ep.SignInAsync(c.Email, c.Password);
             return r.Success
@@ -55,7 +55,7 @@ public static class KlassdAuthEndpoints
                 : Results.Json(new { error = r.Error }, statusCode: StatusCodes.Status401Unauthorized);
         });
 
-        g.MapPost("/refresh", async (RefreshRequest req, SessionService sessions) =>
+        g.MapPost("/refresh", async (RefreshRequest req, ISessionService sessions) =>
         {
             try { return Results.Ok(await sessions.RefreshAsync(req.RefreshToken)); }
             catch (SecurityTokenException ex)
@@ -64,49 +64,49 @@ public static class KlassdAuthEndpoints
             }
         });
 
-        g.MapPost("/logout", async (LogoutRequest req, SessionService sessions) =>
+        g.MapPost("/logout", async (LogoutRequest req, ISessionService sessions) =>
         {
             await sessions.RevokeAsync(req.SessionHandle);
             return Results.NoContent();
         });
 
         // ---- Password reset (forgot password) ----------------------------------------------
-        g.MapPost("/password/forgot", async (ForgotPassword req, PasswordResetService reset) =>
+        g.MapPost("/password/forgot", async (ForgotPassword req, IPasswordResetService reset) =>
         {
             await reset.RequestAsync(req.Identifier, opts.PasswordResetUrlBase);
             return Results.Accepted();   // always — never reveals whether the account exists
         });
 
-        g.MapPost("/password/reset", async (ResetPassword req, PasswordResetService reset) =>
+        g.MapPost("/password/reset", async (ResetPassword req, IPasswordResetService reset) =>
         {
             var r = await reset.ResetAsync(req.Token, req.NewPassword);
             return r.Success ? Results.NoContent() : Results.BadRequest(new { error = r.Error });
         });
 
         // ---- Email verification ------------------------------------------------------------
-        g.MapPost("/email/send-verification", async (SendVerification req, EmailVerificationService ev) =>
+        g.MapPost("/email/send-verification", async (SendVerification req, IEmailVerificationService ev) =>
         {
             await ev.SendVerificationAsync(req.UserId, req.Email, opts.EmailVerifyUrlBase);
             return Results.Accepted();
         });
 
-        g.MapGet("/email/verify", async (string token, EmailVerificationService ev) =>
+        g.MapGet("/email/verify", async (string token, IEmailVerificationService ev) =>
             await ev.VerifyAsync(token)
                 ? Results.Ok(new { verified = true })
                 : Results.BadRequest(new { verified = false }));
 
         // ---- MFA (TOTP) --------------------------------------------------------------------
-        g.MapPost("/mfa/enroll", (MfaEnroll req, TotpService totp) =>
+        g.MapPost("/mfa/enroll", (MfaEnroll req, ITotpService totp) =>
             Results.Ok(totp.GenerateSecret(req.AccountLabel)));
 
-        g.MapPost("/mfa/verify", (MfaVerify req, TotpService totp) =>
+        g.MapPost("/mfa/verify", (MfaVerify req, ITotpService totp) =>
             Results.Ok(new { valid = totp.VerifyCode(req.Secret, req.Code) }));
 
         // ---- User metadata -----------------------------------------------------------------
-        g.MapGet("/users/{userId}/metadata", async (string userId, UserMetadataService meta) =>
+        g.MapGet("/users/{userId}/metadata", async (string userId, IUserMetadataService meta) =>
             Results.Text((await meta.GetAsync(userId)).ToJsonString(), "application/json"));
 
-        g.MapPatch("/users/{userId}/metadata", async (string userId, JsonObject patch, UserMetadataService meta) =>
+        g.MapPatch("/users/{userId}/metadata", async (string userId, JsonObject patch, IUserMetadataService meta) =>
             Results.Text((await meta.UpdateAsync(userId, patch)).ToJsonString(), "application/json"));
 
         // ---- JWKS (public keys for validating access tokens; empty for HS256) -------------

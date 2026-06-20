@@ -67,6 +67,40 @@ public static class CookieAuthExtensions
         return auth;
     }
 
+    /// <summary>
+    /// Registers a hook that runs after an external (SSO) sign-in with the provider's tokens, so you can
+    /// call the provider's APIs, persist profile data, and add claims to the app cookie. The analogue of
+    /// SuperTokens' post-sign-in-up override.
+    /// </summary>
+    public static IAuthBuilder AddExternalSignInHook<THook>(this IAuthBuilder auth)
+        where THook : class, IExternalSignInHook
+    {
+        auth.Services.AddScoped<IExternalSignInHook, THook>();
+        return auth;
+    }
+
+    /// <summary>Registers an inline external-sign-in hook (gets the request's <see cref="IServiceProvider"/>).</summary>
+    public static IAuthBuilder AddExternalSignInHook(this IAuthBuilder auth, ExternalSignInHookDelegate hook)
+    {
+        auth.Services.AddScoped<IExternalSignInHook>(sp => new DelegateExternalSignInHook(hook, sp));
+        return auth;
+    }
+
+    /// <summary>
+    /// Overrides how a specific provider's claims map to a user — the per-provider <c>GetUserInfo</c>
+    /// analogue. Wins over the global <see cref="KlassdAuthCookieOptions.MapExternalUser"/> for this scheme.
+    /// Call after <see cref="AddKlassdAuthCookies"/>.
+    /// </summary>
+    public static IAuthBuilder MapExternalProfile(
+        this IAuthBuilder auth, string scheme, Func<System.Security.Claims.ClaimsPrincipal, Core.Modules.Users.ExternalUserInfo> mapper)
+    {
+        var options = auth.Services
+            .LastOrDefault(d => d.ServiceType == typeof(KlassdAuthCookieOptions))?.ImplementationInstance as KlassdAuthCookieOptions
+            ?? throw new InvalidOperationException("Call AddKlassdAuthCookies() before MapExternalProfile().");
+        options.ProviderProfileMappers[scheme] = mapper;
+        return auth;
+    }
+
     /// <summary>Wires authentication middleware, an optional loopback bypass, and the cookie endpoints.</summary>
     public static WebApplication UseKlassdAuthCookies(this WebApplication app)
     {

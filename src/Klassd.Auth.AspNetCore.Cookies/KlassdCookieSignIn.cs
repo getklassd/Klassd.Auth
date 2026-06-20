@@ -15,8 +15,8 @@ public static class KlassdCookieSignIn
 {
     public static async Task SignInUserAsync(this HttpContext http, User user, CancellationToken ct = default)
     {
-        var roles = http.RequestServices.GetRequiredService<RolesService>();
-        var principal = await ClaimsPrincipalFactory.BuildAsync(user, roles, ct);
+        var roles = http.RequestServices.GetRequiredService<IRolesService>();
+        var principal = await ClaimsPrincipalFactory.BuildAsync(user, roles, extraClaims: null, ct);
         await http.SignInAsync(KlassdAuthSchemes.Cookie, principal);
     }
 }

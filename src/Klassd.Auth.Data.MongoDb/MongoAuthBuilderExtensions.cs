@@ -55,6 +55,7 @@ public static class MongoAuthBuilderExtensions
         auth.Services.AddSingleton<IPasswordResetTokenStore, MongoPasswordResetTokenStore>();
         auth.Services.AddSingleton<IPasswordlessCodeStore, MongoPasswordlessCodeStore>();
         auth.Services.AddSingleton<IPasskeyCredentialStore, MongoPasskeyCredentialStore>();
+        auth.Services.AddSingleton<IMigrationStateStore, MongoMigrationStateStore>();
         auth.Services.AddSingleton<IAuthStorageInitializer, MongoSchemaInitializer>();
         return auth;
     }
@@ -76,6 +77,11 @@ public static class MongoAuthBuilderExtensions
             // Passkey credentials carry an AAGUID; the v3 driver needs an explicit Guid representation.
             BsonSerializer.TryRegisterSerializer(new GuidSerializer(MongoDB.Bson.GuidRepresentation.Standard));
 
+            BsonClassMap.RegisterClassMap<MigrationStateDoc>(cm =>
+            {
+                cm.AutoMap();
+                cm.MapIdMember(x => x.MigrationId);
+            });
             BsonClassMap.RegisterClassMap<UserDoc>(cm =>
             {
                 cm.AutoMap();

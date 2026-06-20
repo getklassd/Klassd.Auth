@@ -111,6 +111,57 @@ public sealed class FakeSessionStore : ISessionStore
     }
 }
 
+/// <summary>In-memory migration ledger + lease lock, faithful to the real adapters' semantics.</summary>
+public sealed class FakeMigrationStateStore : IMigrationStateStore
+{
+    private readonly HashSet<string> _completed = [];
+    private readonly Dictionary<string, (string Owner, DateTimeOffset Expires)> _locks = new();
+    private readonly object _gate = new();
+
+    public Task<bool> IsCompletedAsync(string migrationId, CancellationToken ct = default)
+    {
+        lock (_gate) return Task.FromResult(_completed.Contains(migrationId));
+    }
+
+    public Task MarkCompletedAsync(string migrationId, string? detailsJson = null, CancellationToken ct = default)
+    {
+        lock (_gate) _completed.Add(migrationId);
+        return Task.CompletedTask;
+    }
+
+    public Task<IMigrationLockHandle?> TryAcquireLockAsync(string migrationId, TimeSpan ttl, CancellationToken ct = default)
+    {
+        lock (_gate)
+        {
+            if (_locks.TryGetValue(migrationId, out var held) && held.Expires > DateTimeOffset.UtcNow)
+                return Task.FromResult<IMigrationLockHandle?>(null);   // a live lease is held
+
+            var owner = Guid.NewGuid().ToString("N");
+            _locks[migrationId] = (owner, DateTimeOffset.UtcNow.Add(ttl));
+            return Task.FromResult<IMigrationLockHandle?>(new MigrationLockHandle(
+                renew: (t, _) =>
+                {
+                    lock (_gate)
+                    {
+                        if (_locks.TryGetValue(migrationId, out var cur) && cur.Owner == owner)
+                        {
+                            _locks[migrationId] = (owner, DateTimeOffset.UtcNow.Add(t));
+                            return Task.FromResult(true);
+                        }
+                        return Task.FromResult(false);
+                    }
+                },
+                release: () =>
+                {
+                    lock (_gate)
+                        if (_locks.TryGetValue(migrationId, out var cur) && cur.Owner == owner)
+                            _locks.Remove(migrationId);
+                    return ValueTask.CompletedTask;
+                }));
+        }
+    }
+}
+
 public sealed class FakeMetadataStore : IUserMetadataStore
 {
     private readonly Dictionary<string, string> _data = new();
