@@ -29,7 +29,7 @@ internal static class MigrationCli
 
         // The Job may run before the app has ever started, so create the schema ourselves
         // (this is exactly what the StorageInitializerHostedService does on web startup).
-        foreach (var init in sp.GetServices<IAuthStorageInitializer>())
+        foreach (var init in sp.GetServices<IAuthStorageInitializer>().OrderBy(i => i.Order))
             await init.InitializeAsync();
 
         IMigrationSource source;

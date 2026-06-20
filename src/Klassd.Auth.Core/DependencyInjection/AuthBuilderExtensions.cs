@@ -29,7 +29,21 @@ public static class AuthBuilderExtensions
     public static IAuthBuilder AddKlassdAuth(this IServiceCollection services, SessionConfig sessionConfig)
     {
         services.AddSingleton(sessionConfig);
-        services.AddSingleton<ITokenSigningKey, SymmetricTokenSigningKey>();  // HS256 default; see UseRsaSigning
+
+        // Token signing: when a storage adapter supplies a persistent ISigningKeyStore, default to
+        // rotating RS256 (publishes JWKS + the OIDC discovery doc, so resource servers validate via
+        // discovery out of the box). With no store (in-memory / tests) fall back to shared-secret HS256.
+        // Override explicitly with UseRsaSigning / UseRotatingRsaSigning / UseSharedSecretSigning.
+        services.TryAddSingleton<SigningKeyOptions>();
+        services.AddSingleton<SigningKeyManager>();
+        services.TryAddSingleton<ITokenSigningKey>(sp =>
+            sp.GetService<ISigningKeyStore>() is not null
+                ? sp.GetRequiredService<SigningKeyManager>()
+                : new SymmetricTokenSigningKey(sp.GetRequiredService<SessionConfig>()));
+        // Warm + rotate only when the rotating manager is actually the active signer (no-op otherwise).
+        services.AddSingleton<IAuthStorageInitializer, SigningKeyInitializer>();
+        services.AddHostedService<SigningKeyRotationHostedService>();
+
         services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
         services.AddSingleton<ITotpService, TotpService>();
         services.TryAddSingleton<IEmailSender, ConsoleEmailSender>();
@@ -125,6 +139,18 @@ public static class AuthBuilderExtensions
             onCreated(session, context, services, ct);
     }
 
+    /// <summary>
+    /// Forces shared-secret HS256 signing even when a persistent signing-key store is available
+    /// (the opt-out from the automatic rotating-RS256 default). No JWKS — resource servers must
+    /// validate with the shared <see cref="SessionConfig.SigningKey"/>.
+    /// </summary>
+    public static IAuthBuilder UseSharedSecretSigning(this IAuthBuilder auth)
+    {
+        auth.Services.RemoveAll<ITokenSigningKey>();
+        auth.Services.AddSingleton<ITokenSigningKey>(sp => new SymmetricTokenSigningKey(sp.GetRequiredService<SessionConfig>()));
+        return auth;
+    }
+
     /// <summary>Signs access tokens with RS256 using the given RSA key, and publishes its public JWK.</summary>
     public static IAuthBuilder UseRsaSigning(this IAuthBuilder auth, RSA rsa, string keyId = "klassd-auth")
     {
@@ -144,21 +170,24 @@ public static class AuthBuilderExtensions
     /// <summary>
     /// Signs access tokens with RS256 using keys persisted in an <see cref="ISigningKeyStore"/>
     /// (supplied by a Data.* adapter), with automatic rotation, validation overlap, and a public
-    /// JWKS. Call after a storage adapter (e.g. <c>.UseSqlite(...)</c>).
+    /// JWKS. This is already the default when a store is present; call it only to tune
+    /// <see cref="SigningKeyOptions"/> or to require rotating RS256 explicitly. Call after a storage
+    /// adapter (e.g. <c>.UseSqlite(...)</c>).
     /// </summary>
     public static IAuthBuilder UseRotatingRsaSigning(this IAuthBuilder auth, Action<SigningKeyOptions>? configure = null)
     {
-        var options = new SigningKeyOptions();
-        configure?.Invoke(options);
-        auth.Services.AddSingleton(options);
-        auth.Services.AddSingleton<SigningKeyManager>();
+        if (configure is not null)
+        {
+            var options = new SigningKeyOptions();
+            configure(options);
+            auth.Services.RemoveAll<SigningKeyOptions>();
+            auth.Services.AddSingleton(options);
+        }
 
+        // Pin the rotating manager as the signer (overrides the auto default, which would only pick it
+        // when a store is present — this makes the requirement explicit; it throws without a store).
         auth.Services.RemoveAll<ITokenSigningKey>();
         auth.Services.AddSingleton<ITokenSigningKey>(sp => sp.GetRequiredService<SigningKeyManager>());
-
-        auth.Services.AddSingleton<IAuthStorageInitializer>(sp =>
-            new SigningKeyInitializer(sp.GetRequiredService<SigningKeyManager>()));
-        auth.Services.AddHostedService<SigningKeyRotationHostedService>();
         return auth;
     }
 }

@@ -21,7 +21,7 @@ internal static class TestProvider
         var provider = services.BuildServiceProvider();
 
         await using var scope = provider.CreateAsyncScope();
-        foreach (var init in scope.ServiceProvider.GetServices<IAuthStorageInitializer>())
+        foreach (var init in scope.ServiceProvider.GetServices<IAuthStorageInitializer>().OrderBy(i => i.Order))
             await init.InitializeAsync();
         return provider;
     }

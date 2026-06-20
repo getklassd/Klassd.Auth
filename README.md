@@ -302,12 +302,21 @@ instead, resolve `MigrationCoordinator` and call `RunOnceAsync(migrationId, sour
 
 ### Token signing
 
-Access tokens are HS256 by default (shared secret). For asymmetric signing:
+**Default: rotating RS256 when a storage adapter is present.** Because a `Data.*` adapter supplies a
+persistent signing-key store, Klassd.Auth defaults to RS256 with auto-rotated keys and publishes JWKS +
+the discovery doc — so resource servers validate via discovery with no extra setup. The first key is
+generated and persisted automatically. With **no** store (in-memory / tests) it falls back to HS256.
 
+To choose explicitly:
+
+- `.UseRotatingRsaSigning(o => …)` — the default; call it only to tune `SigningKeyLifetime` /
+  `ValidationGrace`, or to require RS256 explicitly (throws if no store).
 - `.UseRsaSigning(rsa)` / `.UseRsaSigning(pemString)` — RS256 with a fixed key you supply.
-- `.UseRotatingRsaSigning(o => …)` — RS256 with keys **persisted** in the storage adapter and
-  **auto-rotated** (newest key signs; recently-retired keys keep validating during a grace window;
-  expired keys are pruned). Configurable `SigningKeyLifetime` / `ValidationGrace`.
+- `.UseSharedSecretSigning()` — opt back into HS256 (shared `SessionConfig.SigningKey`, no JWKS).
+
+> **Upgrading from ≤ beta.9:** the default flips from HS256 to RS256 when you use a database adapter,
+> so existing access tokens stop validating — users get a new token on next sign-in/refresh. Pin the
+> old behavior with `.UseSharedSecretSigning()` if you validate tokens with the shared secret.
 
 Either way the public key(s) are published at `/auth/jwks.json` so resource servers validate
 tokens without a shared secret. Email-verification tokens are likewise persisted (hashed, with a

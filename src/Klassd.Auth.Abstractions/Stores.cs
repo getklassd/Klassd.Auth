@@ -60,4 +60,8 @@ public interface IUserMetadataStore
 public interface IAuthStorageInitializer
 {
     Task InitializeAsync(CancellationToken ct = default);
+
+    /// <summary>Run order, ascending. Schema creators use the default (0); initializers that depend on
+    /// the schema existing (e.g. the signing-key warmer) use a higher value so they run after it.</summary>
+    int Order => 0;
 }

@@ -13,7 +13,7 @@ internal sealed class StorageInitializerHostedService(IServiceProvider services)
     public async Task StartAsync(CancellationToken ct)
     {
         await using var scope = services.CreateAsyncScope();
-        foreach (var init in scope.ServiceProvider.GetServices<IAuthStorageInitializer>())
+        foreach (var init in scope.ServiceProvider.GetServices<IAuthStorageInitializer>().OrderBy(i => i.Order))
             await init.InitializeAsync(ct);
     }
 

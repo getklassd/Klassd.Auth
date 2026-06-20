@@ -43,13 +43,29 @@ public class DiscoveryDocumentTests
     }
 
     [Test]
-    public async Task Discovery_reports_hs256_when_using_a_shared_secret()
+    public async Task Default_with_a_db_adapter_is_rotating_rs256_with_keys()
     {
-        await using var app = await BuildAsync(_ => { });   // default HS256
+        // No explicit signing call: a Data.* adapter supplies a key store, so RS256 + JWKS is the default.
+        await using var app = await BuildAsync(_ => { });
+        var client = app.GetTestClient();
+
+        var doc = await client.GetFromJsonElementAsync("/auth/.well-known/openid-configuration");
+        await Assert.That(doc.GetProperty("id_token_signing_alg_values_supported")[0].GetString()).IsEqualTo("RS256");
+
+        var jwks = await client.GetFromJsonElementAsync("/auth/jwks.json");
+        await Assert.That(jwks.GetProperty("keys").GetArrayLength()).IsGreaterThan(0);   // auto-generated, persisted
+    }
+
+    [Test]
+    public async Task Shared_secret_opt_out_reports_hs256()
+    {
+        await using var app = await BuildAsync(auth => auth.UseSharedSecretSigning());
         var client = app.GetTestClient();
 
         var doc = await client.GetFromJsonElementAsync("/auth/.well-known/openid-configuration");
         await Assert.That(doc.GetProperty("id_token_signing_alg_values_supported")[0].GetString()).IsEqualTo("HS256");
+        var jwks = await client.GetFromJsonElementAsync("/auth/jwks.json");
+        await Assert.That(jwks.GetProperty("keys").GetArrayLength()).IsEqualTo(0);   // no public keys under HS256
     }
 
     private static async Task<WebApplication> BuildAsync(Action<Klassd.Auth.Abstractions.IAuthBuilder> configureSigning)
