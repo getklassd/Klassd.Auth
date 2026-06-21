@@ -16,33 +16,79 @@ public sealed class MigrationRunner(
     IUserStore users,
     IUserMetadataService metadata,
     IRolesService roles,
+    ITenantContext? tenant = null,
     ILogger<MigrationRunner>? logger = null)
 {
     private readonly ILogger _log = logger ?? NullLogger<MigrationRunner>.Instance;
 
+    /// <summary>
+    /// Imports several sources into one Klassd.Auth, each into its own tenant — e.g. folding multiple
+    /// SuperTokens databases into a single multi-tenant instance. Runs sequentially (a shared store
+    /// connection), re-targeting the ambient tenant per source; returns a report per tenant.
+    /// <paramref name="baseOptions"/> supplies the shared flags (DryRun/OnConflict/imports); its
+    /// <see cref="MigrationOptions.TenantId"/> is overridden per entry.
+    /// </summary>
+    public async Task<IReadOnlyDictionary<string, MigrationReport>> RunManyAsync(
+        IEnumerable<(string TenantId, IMigrationSource Source)> sources,
+        MigrationOptions? baseOptions = null, CancellationToken ct = default)
+    {
+        var reports = new Dictionary<string, MigrationReport>();
+        foreach (var (tenantId, source) in sources)
+        {
+            ct.ThrowIfCancellationRequested();
+            reports[tenantId] = await RunAsync(source, WithTenant(baseOptions, tenantId), ct: ct);
+        }
+        return reports;
+    }
+
+    /// <param name="progress">
+    /// Optional live progress sink, reported as users are processed (throttled) so a UI can show a job
+    /// running in the background. The final tallies are on the returned <see cref="MigrationReport"/>.
+    /// </param>
     public async Task<MigrationReport> RunAsync(
-        IMigrationSource source, MigrationOptions? options = null, CancellationToken ct = default)
+        IMigrationSource source, MigrationOptions? options = null,
+        IProgress<MigrationProgress>? progress = null, CancellationToken ct = default)
     {
         options ??= new MigrationOptions();
-        var results = new List<MigrationItemResult>();
 
-        _log.LogInformation("Starting {Source} migration (dryRun={DryRun}, onConflict={Conflict}).",
-            source.Name, options.DryRun, options.OnConflict);
+        // Point the ambient tenant at the target so the stores stamp inserts AND scope idempotency
+        // lookups to it. Required for multi-tenant imports; a no-op for single-tenant ("public").
+        if (tenant is not null) tenant.TenantId = options.TenantId;
+
+        var results = new List<MigrationItemResult>();
+        int created = 0, merged = 0, skipped = 0, failed = 0;
+
+        _log.LogInformation("Starting {Source} migration into tenant '{Tenant}' (dryRun={DryRun}, onConflict={Conflict}).",
+            source.Name, options.TenantId, options.DryRun, options.OnConflict);
 
         await foreach (var mu in source.ReadAsync(ct))
         {
             ct.ThrowIfCancellationRequested();
+            MigrationItemResult result;
             try
             {
-                results.Add(await MigrateOneAsync(mu, options, ct));
+                result = await MigrateOneAsync(mu, options, ct);
             }
             catch (Exception ex)
             {
                 _log.LogError(ex, "Failed to migrate user {External}/{Email}.", mu.ExternalId, mu.Email);
-                results.Add(new MigrationItemResult(mu.ExternalId, mu.Email, MigrationOutcome.Failed, null, [], ex.Message));
+                result = new MigrationItemResult(mu.ExternalId, mu.Email, MigrationOutcome.Failed, null, [], ex.Message);
             }
+            results.Add(result);
+            switch (result.Outcome)
+            {
+                case MigrationOutcome.Created: created++; break;
+                case MigrationOutcome.Merged: merged++; break;
+                case MigrationOutcome.Skipped: skipped++; break;
+                case MigrationOutcome.Failed: failed++; break;
+            }
+
+            // Throttle to keep a live UI from re-rendering on every single user.
+            if (progress is not null && results.Count % 20 == 0)
+                progress.Report(new MigrationProgress(results.Count, created, merged, skipped, failed, result.Email ?? result.ExternalId));
         }
 
+        progress?.Report(new MigrationProgress(results.Count, created, merged, skipped, failed, null));
         var report = new MigrationReport(results);
         _log.LogInformation("{Source} migration done: {Created} created, {Merged} merged, {Skipped} skipped, {Failed} failed.",
             source.Name, report.Created, report.Merged, report.Skipped, report.Failed);
@@ -191,6 +237,22 @@ public sealed class MigrationRunner(
         ProviderId = tp.ProviderId, ProviderUserId = tp.ProviderUserId,
         Email = tp.Email, EmailVerified = tp.EmailVerified, CreatedAt = DateTimeOffset.UtcNow,
     };
+
+    // Copy the shared options but target a specific tenant, so RunManyAsync never mutates the caller's object.
+    private static MigrationOptions WithTenant(MigrationOptions? b, string tenantId)
+    {
+        b ??= new MigrationOptions();
+        return new MigrationOptions
+        {
+            TenantId = tenantId,
+            DryRun = b.DryRun,
+            OnConflict = b.OnConflict,
+            ImportRoles = b.ImportRoles,
+            ImportMetadata = b.ImportMetadata,
+            ImportTotp = b.ImportTotp,
+            TotpMetadataKey = b.TotpMetadataKey,
+        };
+    }
 
     private static string? Normalize(string? email) =>
         string.IsNullOrWhiteSpace(email) ? null : email.Trim().ToLowerInvariant();

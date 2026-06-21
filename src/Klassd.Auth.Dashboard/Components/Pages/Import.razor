@@ -1,0 +1,214 @@
+@page "/import"
+@attribute [Authorize]
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Components.Forms
+@inject DashboardOptions Options
+@inject ImportJobManager Jobs
+@implements IDisposable
+
+<PageTitle>Klassd.Auth — Import</PageTitle>
+
+<section class="kad-detail kad-import">
+    <h1>Import users</h1>
+    <p class="kad-hint">
+        Import an Auth0 or SuperTokens <strong>export file</strong>@(Options.ConnectionSources.Count > 0 ? ", or directly from a live database," : "") into a tenant. The import runs
+        <strong>in the background</strong> with live progress, so you can leave this page and come back.
+        Always <strong>dry-run first</strong> to preview, then apply. Re-running is safe — existing users
+        are skipped (or merged). Passwords carry over where the hash is verifiable; the rest must reset.
+    </p>
+
+    <div class="kad-field">
+        <label>Source</label>
+        <select @bind="_kind" disabled="@IsRunning">
+            <option value="auth0">Auth0 export (users.json)</option>
+            <option value="supertokens">SuperTokens export (.json)</option>
+            @foreach (var s in Options.ConnectionSources)
+            {
+                <option value="@s.Key">@s.DisplayName</option>
+            }
+        </select>
+    </div>
+
+    @if (IsConnectionKind)
+    {
+        <div class="kad-field"><label>Host</label><input @bind="_host" placeholder="db.internal" /></div>
+        <div class="kad-field"><label>Port</label><input @bind="_port" placeholder="(default)" /></div>
+        <div class="kad-field"><label>Database</label><input @bind="_db" placeholder="supertokens" /></div>
+        <div class="kad-field"><label>Username</label><input @bind="_user" placeholder="postgres" /></div>
+        <div class="kad-field"><label>Password</label><input type="password" @bind="_password" /></div>
+        <div class="kad-field">
+            <label>App id</label>
+            <input @bind="_appId" placeholder="public" />
+            <span class="kad-hint">SuperTokens app id. Credentials are used only for this import; not stored.</span>
+        </div>
+    }
+    else
+    {
+        <div class="kad-field">
+            <label>Export file</label>
+            <InputFile OnChange="OnFileAsync" accept=".json" />
+            @if (_fileName is not null) { <span class="kad-hint">@_fileName — @(_fileBytes!.Length / 1024) KB</span> }
+        </div>
+    }
+
+    <div class="kad-field">
+        <label>Target tenant</label>
+        <input @bind="_tenant" placeholder="public" />
+        <span class="kad-hint">Users land in this tenant. Leave as <code>public</code> for a single-tenant setup.</span>
+    </div>
+
+    <div class="kad-field kad-check">
+        <label><input type="checkbox" @bind="_merge" /> Merge into existing users (attach missing login methods)</label>
+    </div>
+
+    <div class="kad-actions">
+        <button class="kad-btn" disabled="@(IsRunning || !HasInput)" @onclick="() => Start(apply: false)">Dry run</button>
+        <button class="kad-btn kad-btn-primary" disabled="@(IsRunning || !HasInput)" @onclick="() => Start(apply: true)">Apply import</button>
+    </div>
+
+    @if (_error is not null) { <p class="kad-error">@_error</p> }
+
+    @if (_job is not null)
+    {
+        <h2>
+            @_job.SourceName → tenant '@_job.TenantId' (@(_job.Apply ? "apply" : "dry run"))
+            <span class="kad-badge @StateBadgeClass">@_job.State.ToString().ToLowerInvariant()</span>
+        </h2>
+
+        @if (_job.State is ImportJobState.Running or ImportJobState.Canceled)
+        {
+            var p = _job.Progress;
+            <p class="kad-mono">
+                processed @(p?.Processed ?? 0) — created @(p?.Created ?? 0), merged @(p?.Merged ?? 0),
+                skipped @(p?.Skipped ?? 0), failed @(p?.Failed ?? 0)
+            </p>
+            @if (_job.State == ImportJobState.Running)
+            {
+                <div class="kad-actions"><button class="kad-btn kad-btn-warn" @onclick="() => _job.Cancel()">Cancel</button></div>
+            }
+        }
+        else if (_job.State == ImportJobState.Failed)
+        {
+            <p class="kad-error">@_job.Error</p>
+        }
+        else if (_job.Report is { } report)   // Completed
+        {
+            <ul class="kad-report">
+                <li><span>Created</span><strong>@report.Created</strong></li>
+                <li><span>Merged</span><strong>@report.Merged</strong></li>
+                <li><span>Skipped</span><strong>@report.Skipped</strong></li>
+                <li><span>Failed</span><strong class="@(report.Failed > 0 ? "kad-error" : "")">@report.Failed</strong></li>
+                <li><span>Passwords needing reset</span><strong>@report.PasswordsDropped</strong></li>
+            </ul>
+            @if (!_job.Apply && report.Failed == 0)
+            {
+                <p class="kad-hint">Looks good — click <strong>Apply import</strong> to write @(report.Total) user(s).</p>
+            }
+            @if (report.Failed > 0)
+            {
+                <ul class="kad-methods">
+                    @foreach (var f in report.Items.Where(i => i.Outcome == MigrationOutcome.Failed).Take(50))
+                    {
+                        <li><span class="kad-badge kad-badge-muted">failed</span>
+                            <span class="kad-method-id">@(f.Email ?? f.ExternalId ?? "—")</span> — @f.Error</li>
+                    }
+                </ul>
+            }
+        }
+    }
+</section>
+
+@code {
+    private const long MaxBytes = 64 * 1024 * 1024;   // ponytail: in-process upload cap; huge dumps → use the CLI/Job
+
+    private string _kind = "auth0";
+    private string _tenant = "public";
+    private bool _merge;
+
+    private byte[]? _fileBytes;
+    private string? _fileName;
+
+    private string _host = "", _port = "", _db = "", _user = "", _password = "", _appId = "public";
+
+    private string? _error;
+    private ImportJob? _job;
+
+    private ConnectionImportSource? ConnectionSource => Options.ConnectionSources.FirstOrDefault(s => s.Key == _kind);
+    private bool IsConnectionKind => ConnectionSource is not null;
+    private bool IsRunning => _job?.State == ImportJobState.Running;
+    private bool HasInput => IsConnectionKind
+        ? !string.IsNullOrWhiteSpace(_host) && !string.IsNullOrWhiteSpace(_db) && !string.IsNullOrWhiteSpace(_user)
+        : _fileBytes is not null;
+
+    private string StateBadgeClass => _job?.State switch
+    {
+        ImportJobState.Failed => "kad-badge-muted",
+        ImportJobState.Canceled => "kad-badge-muted",
+        _ => "",
+    };
+
+    // Re-attach to an import still running from an earlier visit (the job outlives the circuit).
+    protected override void OnInitialized()
+    {
+        if (Jobs.Latest is { State: ImportJobState.Running } running) Attach(running);
+    }
+
+    private async Task OnFileAsync(InputFileChangeEventArgs e)
+    {
+        _error = null;
+        try
+        {
+            using var ms = new MemoryStream();
+            await e.File.OpenReadStream(MaxBytes).CopyToAsync(ms);
+            _fileBytes = ms.ToArray();
+            _fileName = e.File.Name;
+        }
+        catch (Exception ex) { _error = $"Couldn't read file: {ex.Message}"; _fileBytes = null; _fileName = null; }
+    }
+
+    private void Start(bool apply)
+    {
+        if (!HasInput) { _error = IsConnectionKind ? "Fill in host, database and username first." : "Choose an export file first."; return; }
+        _error = null;
+
+        IMigrationSource source;
+        try
+        {
+            if (ConnectionSource is { } cs)
+            {
+                var parts = new DbConnectionParts(_host.Trim(), _port.Trim(), _db.Trim(), _user.Trim(), _password);
+                source = cs.Build(parts, string.IsNullOrWhiteSpace(_appId) ? "public" : _appId.Trim());
+            }
+            else
+            {
+                var bytes = _fileBytes!;   // capture; sources re-open the stream as they read
+                source = _kind == "supertokens"
+                    ? new Klassd.Auth.Migration.SuperTokens.SuperTokensMigrationSource(() => new MemoryStream(bytes))
+                    : new Klassd.Auth.Migration.Auth0.Auth0MigrationSource(() => new MemoryStream(bytes));
+            }
+        }
+        catch (Exception ex) { _error = ex.Message; return; }
+
+        Attach(Jobs.Start(source, new MigrationOptions
+        {
+            DryRun = !apply,
+            TenantId = string.IsNullOrWhiteSpace(_tenant) ? "public" : _tenant.Trim(),
+            OnConflict = _merge ? ConflictPolicy.Merge : ConflictPolicy.Skip,
+        }));
+    }
+
+    private void Attach(ImportJob job)
+    {
+        if (_job is not null) _job.Changed -= OnJobChanged;
+        _job = job;
+        _job.Changed += OnJobChanged;
+    }
+
+    // Raised off the UI thread → marshal back onto the circuit before re-rendering.
+    private void OnJobChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        if (_job is not null) _job.Changed -= OnJobChanged;
+    }
+}

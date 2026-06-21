@@ -7,7 +7,8 @@ namespace Klassd.Auth.Core.Sessions;
 /// <param name="SessionHandle">The session this token belongs to.</param>
 /// <param name="SessionData">The session's stored key/value bag (also emitted as prefixed claims).</param>
 public sealed record AccessTokenClaimsContext(
-    string UserId, string SessionHandle, IReadOnlyDictionary<string, string> SessionData);
+    string UserId, string SessionHandle, IReadOnlyDictionary<string, string> SessionData,
+    string TenantId = "public");
 
 /// <summary>
 /// Adds custom claims to access tokens. Invoked on <em>every</em> issue — at sign-in and on every

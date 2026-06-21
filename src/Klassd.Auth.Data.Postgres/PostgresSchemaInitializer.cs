@@ -17,12 +17,16 @@ public sealed class PostgresSchemaInitializer(PostgresContext ctx) : IAuthStorag
                 primary_email text,
                 disabled      boolean NOT NULL DEFAULT false,
                 created_at    timestamptz NOT NULL,
-                phone         text
+                phone         text,
+                tenant_id     text NOT NULL DEFAULT 'public'
             );
             ALTER TABLE users ADD COLUMN IF NOT EXISTS phone text;
-            CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username ON users(username) WHERE username IS NOT NULL;
-            CREATE INDEX IF NOT EXISTS ix_users_email ON users(primary_email);
-            CREATE INDEX IF NOT EXISTS ix_users_phone ON users(phone);
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id text NOT NULL DEFAULT 'public';
+            -- Identity is unique PER TENANT (the same email/username can exist in different tenants).
+            DROP INDEX IF EXISTS ux_users_username;   -- old global-username unique index (pre-multi-tenancy)
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_users_tenant_username ON users(tenant_id, username) WHERE username IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS ix_users_email ON users(tenant_id, primary_email);
+            CREATE INDEX IF NOT EXISTS ix_users_phone ON users(tenant_id, phone);
 
             CREATE TABLE IF NOT EXISTS login_methods (
                 id               text PRIMARY KEY,
@@ -48,8 +52,10 @@ public sealed class PostgresSchemaInitializer(PostgresContext ctx) : IAuthStorag
                 created_at         timestamptz NOT NULL,
                 refresh_expires_at timestamptz NOT NULL,
                 revoked            boolean NOT NULL DEFAULT false,
-                session_data       jsonb NOT NULL DEFAULT '{}'::jsonb
+                session_data       jsonb NOT NULL DEFAULT '{}'::jsonb,
+                tenant_id          text NOT NULL DEFAULT 'public'
             );
+            ALTER TABLE sessions ADD COLUMN IF NOT EXISTS tenant_id text NOT NULL DEFAULT 'public';
 
             CREATE TABLE IF NOT EXISTS user_metadata (
                 user_id text PRIMARY KEY,

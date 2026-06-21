@@ -65,8 +65,31 @@ auth.AddPasskeys(o =>
     o.Origins = [builder.Configuration["Auth:Passkeys:Origin"] ?? "https://localhost:5001"];
 });
 
-// 6. Blazor admin dashboard (Interactive Server) at /auth/dashboard.
-auth.AddKlassdAuthDashboard();
+// 6. Blazor admin dashboard (Interactive Server) at /auth/dashboard. Offer live SuperTokens DB imports
+//    on its import page (the sample already references the driver packages for the migrate-auth verb).
+auth.AddKlassdAuthDashboard(o =>
+{
+    o.AddConnectionSource("supertokens-pg", "SuperTokens (PostgreSQL)", (p, appId) =>
+    {
+        var cs = new Npgsql.NpgsqlConnectionStringBuilder
+        {
+            Host = p.Host, Database = p.Database, Username = p.Username, Password = p.Password,
+        };
+        if (int.TryParse(p.Port, out var port)) cs.Port = port;
+        return new Klassd.Auth.Migration.SuperTokens.Postgres.SuperTokensPostgresMigrationSource(
+            cs.ConnectionString, new Klassd.Auth.Migration.SuperTokens.SuperTokensDbOptions { AppId = appId });
+    });
+    o.AddConnectionSource("supertokens-mysql", "SuperTokens (MySQL)", (p, appId) =>
+    {
+        var cs = new MySqlConnector.MySqlConnectionStringBuilder
+        {
+            Server = p.Host, Database = p.Database, UserID = p.Username, Password = p.Password,
+        };
+        if (uint.TryParse(p.Port, out var port)) cs.Port = port;
+        return new Klassd.Auth.Migration.SuperTokens.MySql.SuperTokensMySqlMigrationSource(
+            cs.ConnectionString, new Klassd.Auth.Migration.SuperTokens.SuperTokensDbOptions { AppId = appId });
+    });
+});
 
 // 7. Inbound HMAC webhooks so customer-service tooling can disable/delete/anonymize users.
 auth.AddKlassdAuthWebhooks(o =>

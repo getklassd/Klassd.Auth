@@ -21,6 +21,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Klassd.Auth.Core\Klassd.Auth.Core.csproj" />
+    <!-- Enables the in-dashboard import page. Migration CORE only (Auth0 + SuperTokens export FILES);
+         it has no DB-driver deps, so the live-connection sources stay in the CLI/Job path. -->
+    <ProjectReference Include="..\Klassd.Auth.Migration\Klassd.Auth.Migration.csproj" />
   </ItemGroup>
 
 </Project>

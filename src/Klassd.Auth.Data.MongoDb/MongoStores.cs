@@ -3,22 +3,24 @@ using MongoDB.Driver;
 
 namespace Klassd.Auth.Data.MongoDb;
 
-public sealed class MongoUserStore(MongoContext ctx) : IUserStore
+public sealed class MongoUserStore(MongoContext ctx, ITenantContext tenant) : IUserStore
 {
+    // Id is globally unique → lookup-by-id is NOT tenant-scoped (scoping it would break anonymous flows
+    // like password-reset consume). Identity lookups ARE scoped — that's the cross-tenant ambiguity surface.
     public async Task<User?> FindByIdAsync(string userId, CancellationToken ct = default) =>
         (await ctx.Users.Find(u => u.Id == userId).FirstOrDefaultAsync(ct))?.ToDomain();
 
     public async Task<User?> FindByUsernameAsync(string username, CancellationToken ct = default) =>
-        (await ctx.Users.Find(u => u.Username == username).FirstOrDefaultAsync(ct))?.ToDomain();
+        (await ctx.Users.Find(u => u.TenantId == tenant.TenantId && u.Username == username).FirstOrDefaultAsync(ct))?.ToDomain();
 
     public async Task<User?> FindByEmailAsync(string email, CancellationToken ct = default) =>
-        (await ctx.Users.Find(u => u.PrimaryEmail == email).FirstOrDefaultAsync(ct))?.ToDomain();
+        (await ctx.Users.Find(u => u.TenantId == tenant.TenantId && u.PrimaryEmail == email).FirstOrDefaultAsync(ct))?.ToDomain();
 
     public async Task<User?> FindByPhoneAsync(string phone, CancellationToken ct = default) =>
-        (await ctx.Users.Find(u => u.PrimaryPhone == phone).FirstOrDefaultAsync(ct))?.ToDomain();
+        (await ctx.Users.Find(u => u.TenantId == tenant.TenantId && u.PrimaryPhone == phone).FirstOrDefaultAsync(ct))?.ToDomain();
 
     public async Task<IReadOnlyList<User>> GetAllAsync(CancellationToken ct = default) =>
-        (await ctx.Users.Find(FilterDefinition<UserDoc>.Empty).ToListAsync(ct)).ConvertAll(d => d.ToDomain());
+        (await ctx.Users.Find(u => u.TenantId == tenant.TenantId).ToListAsync(ct)).ConvertAll(d => d.ToDomain());
 
     public Task UpdateUserAsync(User user, CancellationToken ct = default)
     {
@@ -32,7 +34,7 @@ public sealed class MongoUserStore(MongoContext ctx) : IUserStore
 
     public async Task<LoginMethod?> FindEmailPasswordAsync(string email, CancellationToken ct = default)
     {
-        var doc = await ctx.Users.Find(u => u.LoginMethods.Any(m =>
+        var doc = await ctx.Users.Find(u => u.TenantId == tenant.TenantId && u.LoginMethods.Any(m =>
             m.Kind == LoginMethodKind.EmailPassword && m.Email == email)).FirstOrDefaultAsync(ct);
         return doc?.LoginMethods.FirstOrDefault(m =>
             m.Kind == LoginMethodKind.EmailPassword && m.Email == email)?.ToDomain();
@@ -40,14 +42,17 @@ public sealed class MongoUserStore(MongoContext ctx) : IUserStore
 
     public async Task<LoginMethod?> FindThirdPartyAsync(string providerId, string providerUserId, CancellationToken ct = default)
     {
-        var doc = await ctx.Users.Find(u => u.LoginMethods.Any(m =>
+        var doc = await ctx.Users.Find(u => u.TenantId == tenant.TenantId && u.LoginMethods.Any(m =>
             m.ProviderId == providerId && m.ProviderUserId == providerUserId)).FirstOrDefaultAsync(ct);
         return doc?.LoginMethods.FirstOrDefault(m =>
             m.ProviderId == providerId && m.ProviderUserId == providerUserId)?.ToDomain();
     }
 
-    public Task AddUserAsync(User user, CancellationToken ct = default) =>
-        ctx.Users.InsertOneAsync(UserDoc.From(user), cancellationToken: ct);
+    public Task AddUserAsync(User user, CancellationToken ct = default)
+    {
+        user.TenantId = tenant.TenantId;   // store is authoritative on the owning tenant
+        return ctx.Users.InsertOneAsync(UserDoc.From(user), cancellationToken: ct);
+    }
 
     public Task UpdateLoginMethodAsync(LoginMethod method, CancellationToken ct = default)
     {

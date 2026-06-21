@@ -245,6 +245,58 @@ public sealed class MigrationRunnerTests
         await Assert.That((await users.GetAllAsync()).Count).IsEqualTo(1);
     }
 
+    // ---- Multi-database → multi-tenant import (folding several source DBs into one Klassd.Auth) ---
+    [Test]
+    public async Task RunMany_imports_each_source_into_its_own_tenant()
+    {
+        var tenant = new TenantContext();
+        var users = new FakeUserStore(tenant);
+        var meta = new UserMetadataService(new FakeMetadataStore());
+        var runner = new MigrationRunner(users, meta, new RolesService(meta), tenant);
+
+        // The SAME email exists in two different source databases.
+        var reports = await runner.RunManyAsync(
+        [
+            ("acme",   Source(new MigratedUser { Email = "shared@x.com", Username = "a" })),
+            ("globex", Source(new MigratedUser { Email = "shared@x.com", Username = "b" })),
+        ]);
+
+        // Imported as two SEPARATE users, one per tenant — no cross-tenant collision/skip.
+        await Assert.That(reports["acme"].Created).IsEqualTo(1);
+        await Assert.That(reports["globex"].Created).IsEqualTo(1);
+
+        tenant.TenantId = "acme";
+        var inAcme = await users.FindByEmailAsync("shared@x.com");
+        tenant.TenantId = "globex";
+        var inGlobex = await users.FindByEmailAsync("shared@x.com");
+
+        await Assert.That(inAcme).IsNotNull();
+        await Assert.That(inGlobex).IsNotNull();
+        await Assert.That(inAcme!.Id).IsNotEqualTo(inGlobex!.Id);
+        await Assert.That(inAcme.TenantId).IsEqualTo("acme");
+        await Assert.That(inGlobex.TenantId).IsEqualTo("globex");
+
+        // A tenant with neither sees nothing (lookups are scoped).
+        tenant.TenantId = "other";
+        await Assert.That(await users.FindByEmailAsync("shared@x.com")).IsNull();
+    }
+
+    // Re-running the SAME source into the SAME tenant is idempotent (skips), per-tenant.
+    [Test]
+    public async Task RunMany_is_idempotent_per_tenant()
+    {
+        var tenant = new TenantContext();
+        var users = new FakeUserStore(tenant);
+        var meta = new UserMetadataService(new FakeMetadataStore());
+        var runner = new MigrationRunner(users, meta, new RolesService(meta), tenant);
+
+        var first = await runner.RunManyAsync([("acme", Source(new MigratedUser { Email = "u@x.com" }))]);
+        var again = await runner.RunManyAsync([("acme", Source(new MigratedUser { Email = "u@x.com" }))]);
+
+        await Assert.That(first["acme"].Created).IsEqualTo(1);
+        await Assert.That(again["acme"].Skipped).IsEqualTo(1);
+    }
+
     [Test]
     public async Task Merge_attaches_missing_thirdparty_to_existing_user()
     {

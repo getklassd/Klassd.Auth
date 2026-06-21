@@ -2,6 +2,10 @@ namespace Klassd.Auth.Migration;
 
 public enum MigrationOutcome { Created, Merged, Skipped, Failed }
 
+/// <summary>Running tallies reported while a migration is in flight (for live progress UIs).</summary>
+public sealed record MigrationProgress(
+    int Processed, int Created, int Merged, int Skipped, int Failed, string? Last);
+
 /// <summary>The result of migrating a single source user.</summary>
 public sealed record MigrationItemResult(
     string? ExternalId,

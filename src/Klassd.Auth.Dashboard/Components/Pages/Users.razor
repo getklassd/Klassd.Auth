@@ -1,9 +1,9 @@
 @page "/"
 @attribute [Authorize]
 @rendermode InteractiveServer
-@inject UserAccountService Accounts
-@inject RolesService Roles
-@inject AccountLifecycleService Lifecycle
+@inject IUserAccountService Accounts
+@inject IRolesService Roles
+@inject IAccountLifecycleService Lifecycle
 
 <PageTitle>Klassd.Auth — Users</PageTitle>
 

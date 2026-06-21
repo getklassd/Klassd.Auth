@@ -55,6 +55,62 @@ internal static class AuthStoreScenarios
         await Assert.That((await users.FindByPhoneAsync(newPhone))!.Id).IsEqualTo(userId);
     }
 
+    // ---- Multi-tenancy: identity lookups are scoped to the ambient tenant -------------------
+    public static async Task TenantIsolation(IServiceProvider sp)
+    {
+        var email = $"{Nid()}@example.com";
+
+        // The same email registers independently in two tenants → two distinct users.
+        var idA = await AddInTenant(sp, "tenant-a", email);
+        var idB = await AddInTenant(sp, "tenant-b", email);
+        await Assert.That(idA).IsNotEqualTo(idB);
+
+        // Identity lookups (email + email/password method) resolve ONLY within the ambient tenant.
+        await InTenant(sp, "tenant-a", async users =>
+        {
+            await Assert.That((await users.FindByEmailAsync(email))!.Id).IsEqualTo(idA);
+            await Assert.That((await users.FindEmailPasswordAsync(email))!.UserId).IsEqualTo(idA);
+        });
+        await InTenant(sp, "tenant-b", async users =>
+            await Assert.That((await users.FindByEmailAsync(email))!.Id).IsEqualTo(idB));
+
+        // A third tenant sees neither — no cross-tenant leakage.
+        await InTenant(sp, "tenant-c", async users =>
+        {
+            await Assert.That(await users.FindByEmailAsync(email)).IsNull();
+            await Assert.That(await users.FindEmailPasswordAsync(email)).IsNull();
+        });
+
+        // FindById is intentionally global (unique GUID): resolvable regardless of ambient tenant.
+        await InTenant(sp, "tenant-c", async users =>
+            await Assert.That((await users.FindByIdAsync(idA))!.TenantId).IsEqualTo("tenant-a"));
+    }
+
+    private static async Task<string> AddInTenant(IServiceProvider sp, string tenant, string email)
+    {
+        string userId = Nid();
+        await InTenant(sp, tenant, users => users.AddUserAsync(new User
+        {
+            Id = userId, PrimaryEmail = email, CreatedAt = DateTimeOffset.UtcNow,
+            LoginMethods =
+            {
+                new LoginMethod
+                {
+                    Id = Nid(), UserId = userId, Kind = LoginMethodKind.EmailPassword,
+                    Email = email, PasswordHash = "x", CreatedAt = DateTimeOffset.UtcNow,
+                },
+            },
+        }));
+        return userId;
+    }
+
+    private static async Task InTenant(IServiceProvider sp, string tenant, Func<IUserStore, Task> body)
+    {
+        await using var scope = sp.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<ITenantContext>().TenantId = tenant;
+        await body(scope.ServiceProvider.GetRequiredService<IUserStore>());
+    }
+
     // ---- Passwordless one-time codes --------------------------------------------------------
     public static async Task PasswordlessCodeLifecycle(IServiceProvider sp)
     {

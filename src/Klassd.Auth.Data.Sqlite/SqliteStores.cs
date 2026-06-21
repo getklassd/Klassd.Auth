@@ -42,9 +42,9 @@ internal static class SqliteMap
     }
 }
 
-public sealed class SqliteUserStore(SqliteContext ctx) : IUserStore
+public sealed class SqliteUserStore(SqliteContext ctx, ITenantContext tenant) : IUserStore
 {
-    private const string UserColumns = "id, username, primary_email, disabled, created_at, phone";
+    private const string UserColumns = "id, username, primary_email, disabled, created_at, phone, tenant_id";
 
     private static User ReadUser(SqliteDataReader r) => new()
     {
@@ -54,27 +54,32 @@ public sealed class SqliteUserStore(SqliteContext ctx) : IUserStore
         Disabled = r.GetInt32(3) != 0,
         CreatedAt = SqliteMap.Dt(r.GetString(4)),
         PrimaryPhone = r.IsDBNull(5) ? null : r.GetString(5),
+        TenantId = r.GetString(6),
     };
 
+    // Id is a globally-unique GUID, so lookup-by-id is NOT tenant-scoped (scoping it would break
+    // anonymous flows like password-reset consume, where no tenant is established). Identity lookups
+    // (email/username/phone/provider) ARE scoped — that's the cross-tenant ambiguity surface.
     public Task<User?> FindByIdAsync(string userId, CancellationToken ct = default) =>
-        FindUserAsync("id = $v", userId, ct);
+        FindUserAsync("id = $v", userId, tenantScoped: false, ct);
 
     public Task<User?> FindByUsernameAsync(string username, CancellationToken ct = default) =>
-        FindUserAsync("username = $v", username, ct);
+        FindUserAsync("username = $v", username, tenantScoped: true, ct);
 
     public Task<User?> FindByEmailAsync(string email, CancellationToken ct = default) =>
-        FindUserAsync("primary_email = $v", email, ct);
+        FindUserAsync("primary_email = $v", email, tenantScoped: true, ct);
 
     public Task<User?> FindByPhoneAsync(string phone, CancellationToken ct = default) =>
-        FindUserAsync("phone = $v", phone, ct);
+        FindUserAsync("phone = $v", phone, tenantScoped: true, ct);
 
-    private async Task<User?> FindUserAsync(string where, string value, CancellationToken ct)
+    private async Task<User?> FindUserAsync(string where, string value, bool tenantScoped, CancellationToken ct)
     {
         await using var conn = ctx.Open();
         User? user = null;
         var u = conn.CreateCommand();
-        u.CommandText = $"SELECT {UserColumns} FROM users WHERE {where} LIMIT 1";
+        u.CommandText = $"SELECT {UserColumns} FROM users WHERE {where}{(tenantScoped ? " AND tenant_id = $t" : "")} LIMIT 1";
         u.Parameters.AddWithValue("$v", value);
+        if (tenantScoped) u.Parameters.AddWithValue("$t", tenant.TenantId);
         await using (var r = await u.ExecuteReaderAsync(ct))
             if (await r.ReadAsync(ct)) user = ReadUser(r);
         if (user is null) return null;
@@ -98,7 +103,8 @@ public sealed class SqliteUserStore(SqliteContext ctx) : IUserStore
         await using var conn = ctx.Open();
         var list = new List<User>();
         var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT {UserColumns} FROM users ORDER BY created_at";
+        cmd.CommandText = $"SELECT {UserColumns} FROM users WHERE tenant_id = $t ORDER BY created_at";
+        cmd.Parameters.AddWithValue("$t", tenant.TenantId);
         await using (var r = await cmd.ExecuteReaderAsync(ct))
             while (await r.ReadAsync(ct)) list.Add(ReadUser(r));
         foreach (var user in list) await LoadLoginMethods(conn, user, ct);
@@ -119,11 +125,18 @@ public sealed class SqliteUserStore(SqliteContext ctx) : IUserStore
             c.Parameters.AddWithValue("$puid", providerUserId);
         }, ct);
 
+    // Tenant lives on users, not login_methods, so scope by joining to the owning user.
+    private static readonly string LmColumnsQualified =
+        string.Join(", ", SqliteMap.LoginMethodColumns.Split(", ").Select(c => "lm." + c));
+
     private async Task<LoginMethod?> FindMethodAsync(string where, Action<SqliteCommand> bind, CancellationToken ct)
     {
         await using var conn = ctx.Open();
         var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT {SqliteMap.LoginMethodColumns} FROM login_methods WHERE {where} LIMIT 1";
+        cmd.CommandText =
+            $"SELECT {LmColumnsQualified} FROM login_methods lm JOIN users u ON u.id = lm.user_id " +
+            $"WHERE {where} AND u.tenant_id = $t LIMIT 1";
+        cmd.Parameters.AddWithValue("$t", tenant.TenantId);
         bind(cmd);
         await using var r = await cmd.ExecuteReaderAsync(ct);
         return await r.ReadAsync(ct) ? SqliteMap.ReadLoginMethod(r) : null;
@@ -134,16 +147,18 @@ public sealed class SqliteUserStore(SqliteContext ctx) : IUserStore
         await using var conn = ctx.Open();
         await using var tx = await conn.BeginTransactionAsync(ct);
 
+        user.TenantId = tenant.TenantId;   // store is authoritative on the owning tenant
         var u = conn.CreateCommand();
         u.CommandText =
-            "INSERT INTO users (id, username, primary_email, disabled, created_at, phone) " +
-            "VALUES ($id, $un, $email, $dis, $ca, $phone)";
+            "INSERT INTO users (id, username, primary_email, disabled, created_at, phone, tenant_id) " +
+            "VALUES ($id, $un, $email, $dis, $ca, $phone, $t)";
         u.Parameters.AddWithValue("$id", user.Id);
         u.Parameters.AddWithValue("$un", (object?)user.Username ?? DBNull.Value);
         u.Parameters.AddWithValue("$email", (object?)user.PrimaryEmail ?? DBNull.Value);
         u.Parameters.AddWithValue("$dis", user.Disabled ? 1 : 0);
         u.Parameters.AddWithValue("$ca", SqliteMap.Ts(user.CreatedAt));
         u.Parameters.AddWithValue("$phone", (object?)user.PrimaryPhone ?? DBNull.Value);
+        u.Parameters.AddWithValue("$t", user.TenantId);
         await u.ExecuteNonQueryAsync(ct);
 
         foreach (var m in user.LoginMethods)
@@ -224,7 +239,7 @@ public sealed class SqliteSessionStore(SqliteContext ctx) : ISessionStore
         await using var conn = ctx.Open();
         var cmd = conn.CreateCommand();
         cmd.CommandText =
-            "SELECT handle, user_id, refresh_token_hash, created_at, refresh_expires_at, revoked, session_data " +
+            "SELECT handle, user_id, refresh_token_hash, created_at, refresh_expires_at, revoked, session_data, tenant_id " +
             "FROM sessions WHERE handle = $h";
         cmd.Parameters.AddWithValue("$h", handle);
         await using var r = await cmd.ExecuteReaderAsync(ct);
@@ -238,6 +253,7 @@ public sealed class SqliteSessionStore(SqliteContext ctx) : ISessionStore
             RefreshExpiresAt = SqliteMap.Dt(r.GetString(4)),
             Revoked = r.GetInt32(5) != 0,
             SessionData = JsonSerializer.Deserialize<Dictionary<string, string>>(r.GetString(6)) ?? [],
+            TenantId = r.GetString(7),
         };
     }
 
@@ -246,8 +262,8 @@ public sealed class SqliteSessionStore(SqliteContext ctx) : ISessionStore
         await using var conn = ctx.Open();
         var cmd = conn.CreateCommand();
         cmd.CommandText =
-            "INSERT INTO sessions (handle, user_id, refresh_token_hash, created_at, refresh_expires_at, revoked, session_data) " +
-            "VALUES ($h, $uid, $rth, $ca, $rea, $rev, $sd)";
+            "INSERT INTO sessions (handle, user_id, refresh_token_hash, created_at, refresh_expires_at, revoked, session_data, tenant_id) " +
+            "VALUES ($h, $uid, $rth, $ca, $rea, $rev, $sd, $t)";
         Bind(cmd, s);
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -257,7 +273,7 @@ public sealed class SqliteSessionStore(SqliteContext ctx) : ISessionStore
         await using var conn = ctx.Open();
         var cmd = conn.CreateCommand();
         cmd.CommandText =
-            "UPDATE sessions SET refresh_token_hash=$rth, refresh_expires_at=$rea, revoked=$rev, session_data=$sd " +
+            "UPDATE sessions SET refresh_token_hash=$rth, refresh_expires_at=$rea, revoked=$rev, session_data=$sd, tenant_id=$t " +
             "WHERE handle=$h";
         Bind(cmd, s);
         await cmd.ExecuteNonQueryAsync(ct);
@@ -299,6 +315,7 @@ public sealed class SqliteSessionStore(SqliteContext ctx) : ISessionStore
         cmd.Parameters.AddWithValue("$rea", SqliteMap.Ts(s.RefreshExpiresAt));
         cmd.Parameters.AddWithValue("$rev", s.Revoked ? 1 : 0);
         cmd.Parameters.AddWithValue("$sd", JsonSerializer.Serialize(s.SessionData));
+        cmd.Parameters.AddWithValue("$t", s.TenantId);
     }
 }
 

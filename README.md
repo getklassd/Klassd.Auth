@@ -5,9 +5,10 @@ A self-hostable authentication core for .NET — email/password, **passwordless*
 email verification, and a per-user metadata store. An independent, clean-room design built from a
 public feature model, not a port or migration of any existing project's source.
 
-> **Status:** beta (v0.0.1-beta.4). Module logic, session security, the auth methods below, and all
-> three storage adapters work end-to-end and are covered by unit, Testcontainers and Playwright
-> (WebAuthn) tests. Pre-1.0 — APIs may still shift, and provider endpoints track the upstream APIs.
+> **Status:** beta (v0.0.1-beta.11). Module logic, session security, the auth methods below,
+> **shared-schema multi-tenancy**, and all three storage adapters work end-to-end and are covered by
+> unit, Testcontainers and Playwright (WebAuthn) tests. Pre-1.0 — APIs may still shift, and provider
+> endpoints track the upstream APIs.
 
 ## Packages
 
@@ -161,6 +162,30 @@ await lifecycle.DeleteAsync(userId);      // hard delete: user + login methods +
 await lifecycle.AnonymizeAsync(userId);   // GDPR erasure: strip PII/credentials, KEEP the id row
 ```
 
+### Multi-tenancy (shared-schema)
+
+One Klassd.Auth instance can serve many tenants out of one database. Each `User` and session carries a
+`TenantId` (default `"public"`, so **single-tenant deployments need zero changes**), the storage
+adapters **scope every identity lookup** (by email / username / phone / third-party provider) and the
+admin user list to the current tenant, and the access token carries the tenant as a `tnt` claim. The
+same email can therefore register independently in different tenants as separate accounts; lookup by
+id stays global (a GUID is unique). Isolation is enforced in the store layer, so every login method —
+password, passwordless, passkey, OAuth — is tenant-scoped by construction.
+
+The current tenant lives in a scoped `ITenantContext`. It's set from the request at login (the
+`/auth/signup` and `/auth/signin` bodies accept an optional `tenant`) and rehydrated from the `tnt`
+claim on authenticated requests:
+
+```csharp
+app.UseAuthentication();
+app.UseKlassdTenant();   // copies the access token's `tnt` claim into ITenantContext for the request
+app.UseAuthorization();
+```
+
+Tenant resolution is **carried in the token** (no per-request subdomain/host parsing); to scope a
+unit of work yourself, set `ITenantContext.TenantId` before calling the services. Importing several
+source databases into one multi-tenant instance is built in — see the migration section below.
+
 ### Admin dashboard (`Klassd.Auth.Dashboard`)
 
 A drop-in Blazor (Interactive Server) UI to maintain users — list/search, create, enable/disable,
@@ -180,6 +205,24 @@ and static assets, so the host doesn't add those for the dashboard. The host mus
 `<RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>` in its csproj (else `_framework/blazor.web.js`
 404s). Browse the authenticated UI at the trailing-slash URL (`…/auth/dashboard/`). See
 `Klassd.Auth.Sample` for a complete host.
+
+It also ships an **import page** (`…/auth/dashboard/import`) when `AddAuthMigration()` is registered:
+upload an Auth0 / SuperTokens export, pick a target tenant, dry-run then apply — all without the CLI.
+The import runs as a **background job with live progress** (it survives navigating away, and can be
+cancelled), so the admin isn't blocked. To also offer **direct live-database imports** (host /
+database / username / password fields for a running SuperTokens DB), the host registers a connection
+source — this keeps the DB driver dependency out of the dashboard package:
+
+```csharp
+auth.AddKlassdAuthDashboard(o =>
+    o.AddConnectionSource("supertokens-pg", "SuperTokens (PostgreSQL)", (p, appId) =>
+    {
+        var cs = new NpgsqlConnectionStringBuilder
+            { Host = p.Host, Database = p.Database, Username = p.Username, Password = p.Password };
+        if (int.TryParse(p.Port, out var port)) cs.Port = port;
+        return new SuperTokensPostgresMigrationSource(cs.ConnectionString, new SuperTokensDbOptions { AppId = appId });
+    }));
+```
 
 ### Webhooks (`Klassd.Auth.Webhooks`) — automate customer-service requests
 
@@ -251,6 +294,25 @@ How it maps:
 
 Runs are **idempotent**: re-running matches existing users by email then username, and either skips or
 merges them. Sources stream the export, so large dumps don't load whole.
+
+#### Folding several databases into one multi-tenant instance
+
+Set `MigrationOptions.TenantId` to import a source into a specific tenant (lookups and inserts are then
+scoped to it, so the same email in two source systems becomes two separate accounts). To import many
+sources at once, `RunManyAsync` runs each into its own tenant and returns a report per tenant:
+
+```csharp
+var reports = await runner.RunManyAsync(
+[
+    ("acme",   new SuperTokensPostgresMigrationSource("Host=…;Database=acme_st;…")),
+    ("globex", new SuperTokensMySqlMigrationSource("Server=…;Database=globex_st;…")),
+],
+new MigrationOptions { OnConflict = ConflictPolicy.Skip });   // DryRun/flags shared; TenantId set per entry
+```
+
+The `migrate-auth` CLI exposes this too: `--tenant <id>` targets one tenant, and `--manifest <file>`
+imports a JSON array of `{ tenant, source, conn|file, appId }` entries — many databases into one
+multi-tenant Klassd.Auth in a single run.
 
 #### Running it in production (Kubernetes)
 

@@ -39,9 +39,9 @@ internal static class PgMap
     }
 }
 
-public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
+public sealed class PostgresUserStore(PostgresContext ctx, ITenantContext tenant) : IUserStore
 {
-    private const string UserColumns = "id, username, primary_email, disabled, created_at, phone";
+    private const string UserColumns = "id, username, primary_email, disabled, created_at, phone, tenant_id";
 
     private static User ReadUser(NpgsqlDataReader r) => new()
     {
@@ -51,28 +51,32 @@ public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
         Disabled = r.GetBoolean(3),
         CreatedAt = r.GetFieldValue<DateTimeOffset>(4),
         PrimaryPhone = r.IsDBNull(5) ? null : r.GetString(5),
+        TenantId = r.GetString(6),
     };
 
+    // Lookup-by-id is global (GUID is unique; scoping it would break anonymous flows like password
+    // reset). Identity lookups are tenant-scoped — see the SQLite adapter for the rationale.
     public Task<User?> FindByIdAsync(string userId, CancellationToken ct = default) =>
-        FindUserAsync("id = @v", userId, ct);
+        FindUserAsync("id = @v", userId, tenantScoped: false, ct);
 
     public Task<User?> FindByUsernameAsync(string username, CancellationToken ct = default) =>
-        FindUserAsync("username = @v", username, ct);
+        FindUserAsync("username = @v", username, tenantScoped: true, ct);
 
     public Task<User?> FindByEmailAsync(string email, CancellationToken ct = default) =>
-        FindUserAsync("primary_email = @v", email, ct);
+        FindUserAsync("primary_email = @v", email, tenantScoped: true, ct);
 
     public Task<User?> FindByPhoneAsync(string phone, CancellationToken ct = default) =>
-        FindUserAsync("phone = @v", phone, ct);
+        FindUserAsync("phone = @v", phone, tenantScoped: true, ct);
 
-    private async Task<User?> FindUserAsync(string where, string value, CancellationToken ct)
+    private async Task<User?> FindUserAsync(string where, string value, bool tenantScoped, CancellationToken ct)
     {
         await using var conn = await ctx.OpenAsync(ct);
         User? user = null;
         await using (var u = conn.CreateCommand())
         {
-            u.CommandText = $"SELECT {UserColumns} FROM users WHERE {where} LIMIT 1";
+            u.CommandText = $"SELECT {UserColumns} FROM users WHERE {where}{(tenantScoped ? " AND tenant_id = @t" : "")} LIMIT 1";
             u.Parameters.AddWithValue("v", value);
+            if (tenantScoped) u.Parameters.AddWithValue("t", tenant.TenantId);
             await using var r = await u.ExecuteReaderAsync(ct);
             if (await r.ReadAsync(ct)) user = ReadUser(r);
         }
@@ -98,7 +102,8 @@ public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
         var list = new List<User>();
         await using (var cmd = conn.CreateCommand())
         {
-            cmd.CommandText = $"SELECT {UserColumns} FROM users ORDER BY created_at";
+            cmd.CommandText = $"SELECT {UserColumns} FROM users WHERE tenant_id = @t ORDER BY created_at";
+            cmd.Parameters.AddWithValue("t", tenant.TenantId);
             await using var r = await cmd.ExecuteReaderAsync(ct);
             while (await r.ReadAsync(ct)) list.Add(ReadUser(r));
         }
@@ -120,11 +125,18 @@ public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
             c.Parameters.AddWithValue("puid", providerUserId);
         }, ct);
 
+    // Tenant lives on users, not login_methods, so scope by joining to the owning user.
+    private static readonly string LmColumnsQualified =
+        string.Join(", ", PgMap.LoginMethodColumns.Split(", ").Select(c => "lm." + c));
+
     private async Task<LoginMethod?> FindMethodAsync(string where, Action<NpgsqlCommand> bind, CancellationToken ct)
     {
         await using var conn = await ctx.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = $"SELECT {PgMap.LoginMethodColumns} FROM login_methods WHERE {where} LIMIT 1";
+        cmd.CommandText =
+            $"SELECT {LmColumnsQualified} FROM login_methods lm JOIN users u ON u.id = lm.user_id " +
+            $"WHERE {where} AND u.tenant_id = @t LIMIT 1";
+        cmd.Parameters.AddWithValue("t", tenant.TenantId);
         bind(cmd);
         await using var r = await cmd.ExecuteReaderAsync(ct);
         return await r.ReadAsync(ct) ? PgMap.ReadLoginMethod(r) : null;
@@ -137,15 +149,17 @@ public sealed class PostgresUserStore(PostgresContext ctx) : IUserStore
 
         await using (var u = conn.CreateCommand())
         {
+            user.TenantId = tenant.TenantId;   // store is authoritative on the owning tenant
             u.CommandText =
-                "INSERT INTO users (id, username, primary_email, disabled, created_at, phone) " +
-                "VALUES (@id, @un, @email, @dis, @ca, @phone)";
+                "INSERT INTO users (id, username, primary_email, disabled, created_at, phone, tenant_id) " +
+                "VALUES (@id, @un, @email, @dis, @ca, @phone, @t)";
             u.Parameters.AddWithValue("id", user.Id);
             u.Parameters.AddWithValue("un", (object?)user.Username ?? DBNull.Value);
             u.Parameters.AddWithValue("email", (object?)user.PrimaryEmail ?? DBNull.Value);
             u.Parameters.AddWithValue("dis", user.Disabled);
             u.Parameters.AddWithValue("ca", user.CreatedAt);
             u.Parameters.AddWithValue("phone", (object?)user.PrimaryPhone ?? DBNull.Value);
+            u.Parameters.AddWithValue("t", user.TenantId);
             await u.ExecuteNonQueryAsync(ct);
         }
 
@@ -227,7 +241,7 @@ public sealed class PostgresSessionStore(PostgresContext ctx) : ISessionStore
         await using var conn = await ctx.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText =
-            "SELECT handle, user_id, refresh_token_hash, created_at, refresh_expires_at, revoked, session_data::text " +
+            "SELECT handle, user_id, refresh_token_hash, created_at, refresh_expires_at, revoked, session_data::text, tenant_id " +
             "FROM sessions WHERE handle = @h";
         cmd.Parameters.AddWithValue("h", handle);
         await using var r = await cmd.ExecuteReaderAsync(ct);
@@ -241,6 +255,7 @@ public sealed class PostgresSessionStore(PostgresContext ctx) : ISessionStore
             RefreshExpiresAt = r.GetFieldValue<DateTimeOffset>(4),
             Revoked = r.GetBoolean(5),
             SessionData = JsonSerializer.Deserialize<Dictionary<string, string>>(r.GetString(6)) ?? [],
+            TenantId = r.GetString(7),
         };
     }
 
@@ -249,8 +264,8 @@ public sealed class PostgresSessionStore(PostgresContext ctx) : ISessionStore
         await using var conn = await ctx.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText =
-            "INSERT INTO sessions (handle, user_id, refresh_token_hash, created_at, refresh_expires_at, revoked, session_data) " +
-            "VALUES (@h, @uid, @rth, @ca, @rea, @rev, @sd)";
+            "INSERT INTO sessions (handle, user_id, refresh_token_hash, created_at, refresh_expires_at, revoked, session_data, tenant_id) " +
+            "VALUES (@h, @uid, @rth, @ca, @rea, @rev, @sd, @t)";
         Bind(cmd, s);
         await cmd.ExecuteNonQueryAsync(ct);
     }
@@ -260,7 +275,7 @@ public sealed class PostgresSessionStore(PostgresContext ctx) : ISessionStore
         await using var conn = await ctx.OpenAsync(ct);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText =
-            "UPDATE sessions SET refresh_token_hash=@rth, refresh_expires_at=@rea, revoked=@rev, session_data=@sd " +
+            "UPDATE sessions SET refresh_token_hash=@rth, refresh_expires_at=@rea, revoked=@rev, session_data=@sd, tenant_id=@t " +
             "WHERE handle=@h";
         Bind(cmd, s);
         await cmd.ExecuteNonQueryAsync(ct);
@@ -301,6 +316,7 @@ public sealed class PostgresSessionStore(PostgresContext ctx) : ISessionStore
         cmd.Parameters.AddWithValue("ca", s.CreatedAt);
         cmd.Parameters.AddWithValue("rea", s.RefreshExpiresAt);
         cmd.Parameters.AddWithValue("rev", s.Revoked);
+        cmd.Parameters.AddWithValue("t", s.TenantId);
         cmd.Parameters.Add(new NpgsqlParameter("sd", NpgsqlDbType.Jsonb)
         {
             Value = JsonSerializer.Serialize(s.SessionData)

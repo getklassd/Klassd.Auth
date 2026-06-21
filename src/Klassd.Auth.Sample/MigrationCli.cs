@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Klassd.Auth.Abstractions;
 using Klassd.Auth.Migration;
 using Klassd.Auth.Migration.SuperTokens;
@@ -16,6 +17,10 @@ using Microsoft.Extensions.DependencyInjection;
 /// dotnet run -- migrate-auth --source supertokens    --file ./st-export.json
 /// dotnet run -- migrate-auth --source supertokens-pg --conn "Host=…;Database=supertokens;Username=…;Password=…" --apply
 /// dotnet run -- migrate-auth --source supertokens-mysql --conn "Server=…;Database=supertokens;User ID=…;Password=…" --apply
+/// # Import into a specific tenant (shared-schema multi-tenancy):
+/// dotnet run -- migrate-auth --source supertokens-pg --conn "…" --tenant acme --apply
+/// # Fold MANY SuperTokens databases into one Klassd.Auth, each as its own tenant:
+/// dotnet run -- migrate-auth --manifest ./tenants.json --apply
 /// </example>
 internal static class MigrationCli
 {
@@ -32,10 +37,43 @@ internal static class MigrationCli
         foreach (var init in sp.GetServices<IAuthStorageInitializer>().OrderBy(i => i.Order))
             await init.InitializeAsync();
 
+        var o = opts.Value;
+        var runner = sp.GetRequiredService<MigrationRunner>();
+        var baseOptions = new MigrationOptions
+        {
+            DryRun = !o.Apply,
+            OnConflict = o.Merge ? ConflictPolicy.Merge : ConflictPolicy.Skip,
+        };
+
+        // ---- Multi-database → multi-tenant (manifest) ----------------------------------------
+        if (o.Manifest is not null)
+        {
+            List<(string Tenant, IMigrationSource Source)> sources;
+            try
+            {
+                sources = LoadManifest(o.Manifest);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Cannot load manifest: {ex.Message}");
+                return 2;
+            }
+
+            var reports = await runner.RunManyAsync(sources, baseOptions);
+            var anyFailed = false;
+            foreach (var (tenant, report) in reports)
+            {
+                PrintReport($"tenant '{tenant}'", report, o.Apply);
+                anyFailed |= report.Failed != 0;
+            }
+            return anyFailed ? 1 : 0;
+        }
+
+        // ---- Single database (optionally into one tenant) ------------------------------------
         IMigrationSource source;
         try
         {
-            source = BuildSource(opts.Value);
+            source = BuildSource(o);
         }
         catch (Exception ex)
         {
@@ -43,15 +81,16 @@ internal static class MigrationCli
             return 2;
         }
 
-        var runner = sp.GetRequiredService<MigrationRunner>();
-        var report = await runner.RunAsync(source, new MigrationOptions
-        {
-            DryRun = !opts.Value.Apply,
-            OnConflict = opts.Value.Merge ? ConflictPolicy.Merge : ConflictPolicy.Skip,
-        });
+        baseOptions.TenantId = o.Tenant ?? "public";
+        var single = await runner.RunAsync(source, baseOptions);
+        PrintReport($"{source.Name} → tenant '{baseOptions.TenantId}'", single, o.Apply);
+        return single.Failed == 0 ? 0 : 1;
+    }
 
+    private static void PrintReport(string label, MigrationReport report, bool applied)
+    {
         Console.WriteLine();
-        Console.WriteLine($"{source.Name} migration {(opts.Value.Apply ? "applied" : "DRY RUN (pass --apply to write)")}:");
+        Console.WriteLine($"{label} {(applied ? "applied" : "DRY RUN (pass --apply to write)")}:");
         Console.WriteLine($"  created : {report.Created}");
         Console.WriteLine($"  merged  : {report.Merged}");
         Console.WriteLine($"  skipped : {report.Skipped}");
@@ -60,8 +99,22 @@ internal static class MigrationCli
 
         foreach (var item in report.Items.Where(i => i.Outcome == MigrationOutcome.Failed))
             Console.Error.WriteLine($"  FAILED {item.Email ?? item.ExternalId}: {item.Error}");
+    }
 
-        return report.Failed == 0 ? 0 : 1;
+    // A manifest is a JSON array of source databases, each pinned to a tenant. See ManifestEntry.
+    private static List<(string Tenant, IMigrationSource Source)> LoadManifest(string path)
+    {
+        var json = File.ReadAllText(path);
+        var entries = JsonSerializer.Deserialize<List<ManifestEntry>>(json,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+            ?? throw new ArgumentException("manifest is empty or not a JSON array.");
+
+        return entries.ConvertAll(e =>
+        {
+            if (string.IsNullOrWhiteSpace(e.Tenant)) throw new ArgumentException("every manifest entry needs a \"tenant\".");
+            var src = BuildSource(new Options { Source = e.Source, File = e.File, Conn = e.Conn, AppId = e.AppId ?? "public" });
+            return (e.Tenant!, src);
+        });
     }
 
     private static IMigrationSource BuildSource(Options o)
@@ -91,6 +144,8 @@ internal static class MigrationCli
                 case "--file": o.File = Next(args, ref i); break;
                 case "--conn": o.Conn = Next(args, ref i); break;
                 case "--app-id": o.AppId = Next(args, ref i) ?? "public"; break;
+                case "--tenant": o.Tenant = Next(args, ref i); break;
+                case "--manifest": o.Manifest = Next(args, ref i); break;
                 case "--apply": o.Apply = true; break;
                 case "--merge": o.Merge = true; break;
                 default:
@@ -100,7 +155,8 @@ internal static class MigrationCli
             }
         }
 
-        if (string.IsNullOrWhiteSpace(o.Source)) { PrintUsage(); return null; }
+        // Either a single --source, or a --manifest of many sources (each into its own tenant).
+        if (string.IsNullOrWhiteSpace(o.Manifest) && string.IsNullOrWhiteSpace(o.Source)) { PrintUsage(); return null; }
         return o;
     }
 
@@ -110,12 +166,19 @@ internal static class MigrationCli
     {
         Console.Error.WriteLine(
             """
-            Usage: migrate-auth --source <auth0|supertokens|supertokens-pg|supertokens-mysql> [options]
+            Usage: migrate-auth (--source <auth0|supertokens|supertokens-pg|supertokens-mysql> | --manifest <path>) [options]
+              --source <id>     one importer (auth0, supertokens, supertokens-pg, supertokens-mysql)
               --file <path>     export file (auth0, supertokens)
               --conn <string>   SuperTokens DB connection string (supertokens-pg, supertokens-mysql)
               --app-id <id>     SuperTokens app id (default: public)
+              --tenant <id>     import the single source into this Klassd.Auth tenant (default: public)
+              --manifest <path> JSON array of source databases, each pinned to a tenant — folds many
+                                databases into one multi-tenant Klassd.Auth. Overrides --source.
               --apply           write changes (omit for a dry run)
               --merge           attach missing login methods to existing users (default: skip)
+
+            Manifest entry: { "tenant": "acme", "source": "supertokens-pg",
+                              "conn": "Host=…;Database=acme_st;…", "appId": "public" }
             """);
     }
 
@@ -125,8 +188,13 @@ internal static class MigrationCli
         public string? File;
         public string? Conn;
         public string AppId = "public";
+        public string? Tenant;
+        public string? Manifest;
         public bool Apply;
         public bool Merge;
         public Options() { }
     }
+
+    /// <summary>One source database in a multi-tenant manifest. <c>file</c> or <c>conn</c> per the source kind.</summary>
+    private sealed record ManifestEntry(string? Tenant, string? Source, string? Conn, string? File, string? AppId);
 }

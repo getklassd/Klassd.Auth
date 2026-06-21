@@ -2,36 +2,44 @@ using Klassd.Auth.Abstractions;
 
 namespace Klassd.Auth.Tests;
 
-/// <summary>In-memory stores so the Core services can be tested without a database.</summary>
-public sealed class FakeUserStore : IUserStore
+/// <summary>
+/// In-memory stores so the Core services can be tested without a database. Honors the ambient
+/// <see cref="ITenantContext"/> exactly like the real adapters: identity lookups are tenant-scoped,
+/// find-by-id is global, and inserts are stamped with the current tenant. Defaults to "public" so
+/// single-tenant tests are unaffected.
+/// </summary>
+public sealed class FakeUserStore(ITenantContext? tenant = null) : IUserStore
 {
     private readonly Dictionary<string, User> _users = new();
+    private readonly ITenantContext _tenant = tenant ?? new TenantContext();
+    private string T => _tenant.TenantId;
 
     public Task<User?> FindByIdAsync(string id, CancellationToken ct = default) =>
-        Task.FromResult(_users.GetValueOrDefault(id));
+        Task.FromResult(_users.GetValueOrDefault(id));   // id is globally unique → not tenant-scoped
 
     public Task<User?> FindByUsernameAsync(string username, CancellationToken ct = default) =>
-        Task.FromResult<User?>(_users.Values.FirstOrDefault(u => u.Username == username));
+        Task.FromResult<User?>(_users.Values.FirstOrDefault(u => u.TenantId == T && u.Username == username));
 
     public Task<User?> FindByEmailAsync(string email, CancellationToken ct = default) =>
-        Task.FromResult<User?>(_users.Values.FirstOrDefault(u => u.PrimaryEmail == email));
+        Task.FromResult<User?>(_users.Values.FirstOrDefault(u => u.TenantId == T && u.PrimaryEmail == email));
 
     public Task<User?> FindByPhoneAsync(string phone, CancellationToken ct = default) =>
-        Task.FromResult<User?>(_users.Values.FirstOrDefault(u => u.PrimaryPhone == phone));
+        Task.FromResult<User?>(_users.Values.FirstOrDefault(u => u.TenantId == T && u.PrimaryPhone == phone));
 
     public Task<LoginMethod?> FindEmailPasswordAsync(string email, CancellationToken ct = default) =>
-        Task.FromResult<LoginMethod?>(_users.Values.SelectMany(u => u.LoginMethods)
+        Task.FromResult<LoginMethod?>(_users.Values.Where(u => u.TenantId == T).SelectMany(u => u.LoginMethods)
             .FirstOrDefault(m => m.Kind == LoginMethodKind.EmailPassword && m.Email == email));
 
     public Task<LoginMethod?> FindThirdPartyAsync(string providerId, string providerUserId, CancellationToken ct = default) =>
-        Task.FromResult<LoginMethod?>(_users.Values.SelectMany(u => u.LoginMethods)
+        Task.FromResult<LoginMethod?>(_users.Values.Where(u => u.TenantId == T).SelectMany(u => u.LoginMethods)
             .FirstOrDefault(m => m.ProviderId == providerId && m.ProviderUserId == providerUserId));
 
     public Task<IReadOnlyList<User>> GetAllAsync(CancellationToken ct = default) =>
-        Task.FromResult<IReadOnlyList<User>>(_users.Values.ToList());
+        Task.FromResult<IReadOnlyList<User>>(_users.Values.Where(u => u.TenantId == T).ToList());
 
     public Task AddUserAsync(User user, CancellationToken ct = default)
     {
+        user.TenantId = T;   // store is authoritative on the owning tenant
         _users[user.Id] = user;
         return Task.CompletedTask;
     }

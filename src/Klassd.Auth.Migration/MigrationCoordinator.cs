@@ -79,7 +79,7 @@ public sealed class MigrationCoordinator(
         _log.LogInformation("Acquired lease for migration {Id}; running {Source}.", migrationId, source.Name);
         await using var heartbeat = new LeaseHeartbeat(handle, guard, _log, ct);
 
-        var report = await runner.RunAsync(source, options, ct);
+        var report = await runner.RunAsync(source, options, ct: ct);
         await state.MarkCompletedAsync(migrationId, Summarize(report), ct);
 
         _log.LogInformation("Migration {Id} recorded complete.", migrationId);

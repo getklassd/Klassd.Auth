@@ -14,6 +14,7 @@ internal static class ClaimsPrincipalFactory
         {
             new(ClaimTypes.NameIdentifier, user.Id),
             new(ClaimTypes.Name, user.Username ?? user.PrimaryEmail ?? user.Id),
+            new(TenantContext.ClaimName, user.TenantId),
         };
         if (user.PrimaryEmail is not null)
             claims.Add(new Claim(ClaimTypes.Email, user.PrimaryEmail));

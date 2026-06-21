@@ -56,6 +56,7 @@ public class SqliteStoreTests
     [Test] public Task Password_reset_token() => AuthStoreScenarios.PasswordResetTokenRoundTrip(_provider!);
     [Test] public Task Migration_state() => AuthStoreScenarios.MigrationStateLifecycle(_provider!);
     [Test] public Task Access_token_payload_merge() => AuthStoreScenarios.AccessTokenPayloadMerge(_provider!);
+    [Test] public Task Tenant_isolation() => AuthStoreScenarios.TenantIsolation(_provider!);
 }
 
 /// <summary>
@@ -109,6 +110,7 @@ public class PostgresStoreTests
     [Test] public Task Password_reset_token() => AuthStoreScenarios.PasswordResetTokenRoundTrip(_provider!);
     [Test] public Task Migration_state() => AuthStoreScenarios.MigrationStateLifecycle(_provider!);
     [Test] public Task Access_token_payload_merge() => AuthStoreScenarios.AccessTokenPayloadMerge(_provider!);
+    [Test] public Task Tenant_isolation() => AuthStoreScenarios.TenantIsolation(_provider!);
 }
 
 /// <summary>
@@ -142,4 +144,5 @@ public class MongoStoreTests
     [Test] public Task Password_reset_token() => AuthStoreScenarios.PasswordResetTokenRoundTrip(_provider!);
     [Test] public Task Migration_state() => AuthStoreScenarios.MigrationStateLifecycle(_provider!);
     [Test] public Task Access_token_payload_merge() => AuthStoreScenarios.AccessTokenPayloadMerge(_provider!);
+    [Test] public Task Tenant_isolation() => AuthStoreScenarios.TenantIsolation(_provider!);
 }

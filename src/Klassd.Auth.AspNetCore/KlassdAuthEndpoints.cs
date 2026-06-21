@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Klassd.Auth.Abstractions;
 using Klassd.Auth.Core.Modules.EmailPassword;
 using Klassd.Auth.Core.Modules.EmailVerification;
 using Klassd.Auth.Core.Modules.Mfa;
@@ -39,16 +40,21 @@ public static class KlassdAuthEndpoints
         var g = app.MapGroup(opts.BasePath);
 
         // ---- Email / password + sessions --------------------------------------------------
-        g.MapPost("/signup", async (Credentials c, IEmailPasswordService ep, ISessionService sessions) =>
+        // The tenant is established from the request (there's no token yet at sign-up/in); it then flows
+        // into the user lookup, the new user/session row, and the issued token's `tnt` claim. Omitted →
+        // the single "public" tenant. ISessionService reads the same context when stamping the session.
+        g.MapPost("/signup", async (Credentials c, IEmailPasswordService ep, ISessionService sessions, ITenantContext tenant) =>
         {
+            if (!string.IsNullOrEmpty(c.Tenant)) tenant.TenantId = c.Tenant;
             var r = await ep.SignUpAsync(c.Email, c.Password);
             return r.Success
                 ? Results.Ok(await sessions.CreateAsync(r.UserId!))
                 : Results.BadRequest(new { error = r.Error });
         });
 
-        g.MapPost("/signin", async (Credentials c, IEmailPasswordService ep, ISessionService sessions) =>
+        g.MapPost("/signin", async (Credentials c, IEmailPasswordService ep, ISessionService sessions, ITenantContext tenant) =>
         {
+            if (!string.IsNullOrEmpty(c.Tenant)) tenant.TenantId = c.Tenant;
             var r = await ep.SignInAsync(c.Email, c.Password);
             return r.Success
                 ? Results.Ok(await sessions.CreateAsync(r.UserId!))
@@ -146,7 +152,7 @@ public static class KlassdAuthEndpoints
     }
 
     // Request DTOs for the auth API.
-    public sealed record Credentials(string Email, string Password);
+    public sealed record Credentials(string Email, string Password, string? Tenant = null);
     public sealed record RefreshRequest(string RefreshToken);
     public sealed record LogoutRequest(string SessionHandle);
     public sealed record ForgotPassword(string Identifier);

@@ -47,6 +47,7 @@ public sealed class UserDoc
     public string? PrimaryPhone { get; set; }
     public bool Disabled { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public string TenantId { get; set; } = TenantContext.Default;
     public List<LoginMethodDoc> LoginMethods { get; set; } = [];
 
     public User ToDomain() => new()
@@ -57,6 +58,7 @@ public sealed class UserDoc
         PrimaryPhone = PrimaryPhone,
         Disabled = Disabled,
         CreatedAt = CreatedAt,
+        TenantId = TenantId,
         LoginMethods = LoginMethods.ConvertAll(m => m.ToDomain()),
     };
 
@@ -68,6 +70,7 @@ public sealed class UserDoc
         PrimaryPhone = u.PrimaryPhone,
         Disabled = u.Disabled,
         CreatedAt = u.CreatedAt,
+        TenantId = u.TenantId,
         LoginMethods = u.LoginMethods.ConvertAll(LoginMethodDoc.From),
     };
 }
@@ -106,18 +109,19 @@ public sealed class SessionDoc
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset RefreshExpiresAt { get; set; }
     public bool Revoked { get; set; }
+    public string TenantId { get; set; } = TenantContext.Default;
     public Dictionary<string, string> SessionData { get; set; } = [];
 
     public SessionEntity ToDomain() => new()
     {
         Handle = Handle, UserId = UserId, RefreshTokenHash = RefreshTokenHash, CreatedAt = CreatedAt,
-        RefreshExpiresAt = RefreshExpiresAt, Revoked = Revoked, SessionData = SessionData,
+        RefreshExpiresAt = RefreshExpiresAt, Revoked = Revoked, TenantId = TenantId, SessionData = SessionData,
     };
 
     public static SessionDoc From(SessionEntity s) => new()
     {
         Handle = s.Handle, UserId = s.UserId, RefreshTokenHash = s.RefreshTokenHash, CreatedAt = s.CreatedAt,
-        RefreshExpiresAt = s.RefreshExpiresAt, Revoked = s.Revoked, SessionData = s.SessionData,
+        RefreshExpiresAt = s.RefreshExpiresAt, Revoked = s.Revoked, TenantId = s.TenantId, SessionData = s.SessionData,
     };
 }
 

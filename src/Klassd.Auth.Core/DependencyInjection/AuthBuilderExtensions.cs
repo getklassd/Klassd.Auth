@@ -54,6 +54,10 @@ public static class AuthBuilderExtensions
         services.TryAddSingleton<IPasswordlessCodeStore, InMemoryPasswordlessCodeStore>();
         services.TryAddSingleton<IPasskeyCredentialStore, InMemoryPasskeyCredentialStore>();
 
+        // Shared-schema multi-tenancy: the current tenant, scoped per request. Defaults to "public",
+        // so single-tenant hosts are unaffected. Set it at login / via UseKlassdTenant() on authed calls.
+        services.TryAddScoped<ITenantContext, TenantContext>();
+
         services.AddScoped<ISessionService, SessionService>();
         services.AddScoped<IEmailPasswordService, EmailPasswordService>();
         services.AddScoped<IEmailVerificationService, EmailVerificationService>();

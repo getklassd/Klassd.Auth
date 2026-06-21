@@ -70,8 +70,12 @@ public sealed class SessionService(
     SessionConfig config,
     ITokenSigningKey signingKey,
     IEnumerable<IAccessTokenClaimsEnricher>? claimsEnrichers = null,
-    IEnumerable<ISessionCreateHook>? createHooks = null) : ISessionService
+    IEnumerable<ISessionCreateHook>? createHooks = null,
+    ITenantContext? tenant = null) : ISessionService
 {
+    // Read lazily, not captured in the ctor: the login endpoint sets the tenant AFTER DI has already
+    // constructed this scoped service, so a captured value would be stale ("public").
+    private string CurrentTenant => tenant?.TenantId ?? TenantContext.Default;
     private readonly JwtSecurityTokenHandler _jwt = new();
     private readonly IReadOnlyList<IAccessTokenClaimsEnricher> _enrichers = claimsEnrichers?.ToList() ?? [];
     private readonly IReadOnlyList<ISessionCreateHook> _createHooks = createHooks?.ToList() ?? [];
@@ -94,6 +98,7 @@ public sealed class SessionService(
         {
             Handle = handle,
             UserId = userId,
+            TenantId = CurrentTenant,
             RefreshTokenHash = Sha256(refresh),
             CreatedAt = DateTimeOffset.UtcNow,
             RefreshExpiresAt = DateTimeOffset.UtcNow + config.RefreshTokenLifetime,
@@ -179,12 +184,13 @@ public sealed class SessionService(
         {
             new(JwtRegisteredClaimNames.Sub, s.UserId),
             new("sessionHandle", s.Handle),
+            new(TenantContext.ClaimName, s.TenantId),
         };
         claims.AddRange(s.SessionData.Select(kv => ToPayloadClaim($"{config.SessionDataClaimPrefix}{kv.Key}", kv.Value)));
 
         if (_enrichers.Count > 0)
         {
-            var context = new AccessTokenClaimsContext(s.UserId, s.Handle, s.SessionData);
+            var context = new AccessTokenClaimsContext(s.UserId, s.Handle, s.SessionData, s.TenantId);
             foreach (var enricher in _enrichers)
                 claims.AddRange(await enricher.GetClaimsAsync(context, ct));
         }

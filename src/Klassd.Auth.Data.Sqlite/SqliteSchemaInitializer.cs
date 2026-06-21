@@ -8,6 +8,28 @@ public sealed class SqliteSchemaInitializer(SqliteContext ctx) : IAuthStorageIni
     public async Task InitializeAsync(CancellationToken ct = default)
     {
         await using var conn = ctx.Open();
+
+        // Best-effort column adds for pre-existing DBs (fresh DBs get these via CREATE below). Run BEFORE
+        // the CREATE/index block so the tenant-scoped indexes can reference tenant_id on upgraded DBs.
+        // SQLite has no ADD COLUMN IF NOT EXISTS, so swallow dupes; ALTER on a not-yet-created table (fresh
+        // DB) also throws and is swallowed — the CREATE then builds the table with the columns present.
+        foreach (var alter in new[]
+                 {
+                     "ALTER TABLE users ADD COLUMN phone TEXT",
+                     "ALTER TABLE login_methods ADD COLUMN phone TEXT",
+                     "ALTER TABLE users ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'public'",
+                     "ALTER TABLE sessions ADD COLUMN tenant_id TEXT NOT NULL DEFAULT 'public'",
+                 })
+        {
+            try
+            {
+                var a = conn.CreateCommand();
+                a.CommandText = alter;
+                await a.ExecuteNonQueryAsync(ct);
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException) { /* column / table not applicable */ }
+        }
+
         var cmd = conn.CreateCommand();
         cmd.CommandText =
             """
@@ -17,11 +39,14 @@ public sealed class SqliteSchemaInitializer(SqliteContext ctx) : IAuthStorageIni
                 primary_email TEXT,
                 disabled      INTEGER NOT NULL DEFAULT 0,
                 created_at    TEXT NOT NULL,
-                phone         TEXT
+                phone         TEXT,
+                tenant_id     TEXT NOT NULL DEFAULT 'public'
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username ON users(username) WHERE username IS NOT NULL;
-            CREATE INDEX IF NOT EXISTS ix_users_email ON users(primary_email);
-            CREATE INDEX IF NOT EXISTS ix_users_phone ON users(phone);
+            -- Identity is unique PER TENANT (the same email/username can exist in different tenants).
+            DROP INDEX IF EXISTS ux_users_username;   -- old global-username unique index (pre-multi-tenancy)
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_users_tenant_username ON users(tenant_id, username) WHERE username IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS ix_users_email ON users(tenant_id, primary_email);
+            CREATE INDEX IF NOT EXISTS ix_users_phone ON users(tenant_id, phone);
 
             CREATE TABLE IF NOT EXISTS login_methods (
                 id               TEXT PRIMARY KEY,
@@ -46,7 +71,8 @@ public sealed class SqliteSchemaInitializer(SqliteContext ctx) : IAuthStorageIni
                 created_at         TEXT NOT NULL,
                 refresh_expires_at TEXT NOT NULL,
                 revoked            INTEGER NOT NULL DEFAULT 0,
-                session_data       TEXT NOT NULL DEFAULT '{}'
+                session_data       TEXT NOT NULL DEFAULT '{}',
+                tenant_id          TEXT NOT NULL DEFAULT 'public'
             );
 
             CREATE TABLE IF NOT EXISTS user_metadata (
@@ -107,22 +133,5 @@ public sealed class SqliteSchemaInitializer(SqliteContext ctx) : IAuthStorageIni
             );
             """;
         await cmd.ExecuteNonQueryAsync(ct);
-
-        // Best-effort column adds for databases created before passwordless-over-SMS (fresh DBs already
-        // have them via the CREATE above). SQLite has no ADD COLUMN IF NOT EXISTS, so swallow dupes.
-        foreach (var alter in new[]
-                 {
-                     "ALTER TABLE users ADD COLUMN phone TEXT",
-                     "ALTER TABLE login_methods ADD COLUMN phone TEXT",
-                 })
-        {
-            try
-            {
-                var a = conn.CreateCommand();
-                a.CommandText = alter;
-                await a.ExecuteNonQueryAsync(ct);
-            }
-            catch (Microsoft.Data.Sqlite.SqliteException) { /* column already exists */ }
-        }
     }
 }

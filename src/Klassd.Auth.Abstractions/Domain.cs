@@ -9,6 +9,13 @@ public sealed class User
 {
     public required string Id { get; init; }
 
+    /// <summary>
+    /// Tenant this user belongs to (shared-schema multi-tenancy). Identity lookups (by email, username,
+    /// phone, third-party) are scoped to a tenant, so the same email can exist independently in different
+    /// tenants. Single-tenant deployments leave this at <see cref="TenantContext.Default"/> ("public").
+    /// </summary>
+    public string TenantId { get; set; } = TenantContext.Default;
+
     /// <summary>Optional login identity (Klassd CMS keys on username; Workflows keys on email).</summary>
     public string? Username { get; set; }
     public string? PrimaryEmail { get; set; }
@@ -64,6 +71,9 @@ public sealed class SessionEntity
 {
     public required string Handle { get; init; }       // stable session id, embedded in the access token
     public required string UserId { get; init; }
+
+    /// <summary>Tenant the session belongs to; persisted so the <c>tnt</c> claim is re-emitted on every refresh.</summary>
+    public string TenantId { get; set; } = TenantContext.Default;
     public required string RefreshTokenHash { get; set; }  // hash of the current refresh token, rotated on refresh
 
     public DateTimeOffset CreatedAt { get; init; }
