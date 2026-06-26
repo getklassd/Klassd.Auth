@@ -38,6 +38,7 @@ public interface IUserAccountService
     Task<User?> FindByEmailAsync(string email, CancellationToken ct = default);
     Task<IReadOnlyList<User>> GetAllAsync(CancellationToken ct = default);
     Task<User> CreateLocalAsync(string? username, string? email, string password, CancellationToken ct = default);
+    Task<User> CreatePasswordlessAsync(string? username, string identifier, PasswordlessChannel channel, bool verified = false, CancellationToken ct = default);
     Task<User?> ProvisionExternalAsync(string provider, ExternalUserInfo info, bool autoProvision,
         bool autoLinkByVerifiedEmail = false, CancellationToken ct = default);
     Task<bool> SetDisabledAsync(string id, bool disabled, CancellationToken ct = default);
@@ -82,6 +83,41 @@ public sealed class UserAccountService(IUserStore users, IPasswordHasher hasher)
                     Kind = LoginMethodKind.EmailPassword,
                     Email = email,
                     PasswordHash = hasher.Hash(password),
+                    CreatedAt = DateTimeOffset.UtcNow,
+                }
+            }
+        };
+        await users.AddUserAsync(user, ct);
+        return user;
+    }
+
+    /// <summary>Creates a passwordless user identified by an email or phone. No password is set.</summary>
+    public async Task<User> CreatePasswordlessAsync(
+        string? username, string identifier, PasswordlessChannel channel, bool verified = false, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(identifier)) throw new ArgumentException("An identifier is required.");
+
+        var isEmail = channel == PasswordlessChannel.Email;
+        identifier = isEmail ? Norm(identifier) : identifier.Trim();
+
+        var userId = Guid.NewGuid().ToString("N");
+        var user = new User
+        {
+            Id = userId,
+            Username = username,
+            PrimaryEmail = isEmail ? identifier : null,
+            PrimaryPhone = isEmail ? null : identifier,
+            CreatedAt = DateTimeOffset.UtcNow,
+            LoginMethods =
+            {
+                new LoginMethod
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    UserId = userId,
+                    Kind = LoginMethodKind.Passwordless,
+                    Email = isEmail ? identifier : null,
+                    EmailVerified = isEmail && verified,
+                    Phone = isEmail ? null : identifier,
                     CreatedAt = DateTimeOffset.UtcNow,
                 }
             }
@@ -309,6 +345,8 @@ public abstract class UserAccountServiceDecorator(IUserAccountService inner) : I
     public virtual Task<IReadOnlyList<User>> GetAllAsync(CancellationToken ct = default) => inner.GetAllAsync(ct);
     public virtual Task<User> CreateLocalAsync(string? username, string? email, string password, CancellationToken ct = default) =>
         inner.CreateLocalAsync(username, email, password, ct);
+    public virtual Task<User> CreatePasswordlessAsync(string? username, string identifier, PasswordlessChannel channel, bool verified = false, CancellationToken ct = default) =>
+        inner.CreatePasswordlessAsync(username, identifier, channel, verified, ct);
     public virtual Task<User?> ProvisionExternalAsync(string provider, ExternalUserInfo info, bool autoProvision,
         bool autoLinkByVerifiedEmail = false, CancellationToken ct = default) =>
         inner.ProvisionExternalAsync(provider, info, autoProvision, autoLinkByVerifiedEmail, ct);
