@@ -624,6 +624,9 @@ existing user services expose, so it can back their current Blazor cookie sign-i
 var user = await accounts.CreateLocalAsync(username: "alice", email: null, password);  // CMS (username)
 var user = await accounts.CreateLocalAsync(username: null, email: "a@x.com", password); // Workflows (email)
 
+// Passwordless user (no password) — sign-in then goes through one-time codes / passkeys:
+var pl = await accounts.CreatePasswordlessAsync(username: null, "a@x.com", PasswordlessChannel.Email, verified: true);
+
 if (accounts.VerifyPassword(user, password) && !user.Disabled) { /* issue the app's cookie */ }
 
 await accounts.SetDisabledAsync(user.Id, true);                 // soft-delete (both apps)
